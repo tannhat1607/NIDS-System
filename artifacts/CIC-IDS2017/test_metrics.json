@@ -1,0 +1,9 @@
+{
+  "Dataset": "CIC-IDS2017",
+  "Model": "CNN-LSTM",
+  "Val_Macro_F1": 0.8626832794161796,
+  "Test_Macro_F1": 0.8605577098584778,
+  "Test_Accuracy": 0.9448548812664908,
+  "Test_Balanced_Accuracy": 0.893863481073396,
+  "Best_Epoch": 7
+}
