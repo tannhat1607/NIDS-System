@@ -25,3 +25,5 @@ logs/*.log
 Thumbs.db
 .vscode/
 .idea/
+
+prompt.md
