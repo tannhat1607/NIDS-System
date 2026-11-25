@@ -222,6 +222,31 @@ html.light .text-slate-500 {
   color: #334155 !important;
 }
 
+/* Native dropdown menus need opaque backgrounds and an explicit theme. */
+html.dark select {
+  color-scheme: dark;
+}
+
+html.dark select option,
+html.dark select optgroup {
+  background-color: #0f172a;
+  color: #f1f5f9;
+}
+
+html.light select {
+  color-scheme: light;
+}
+
+html.light select option,
+html.light select optgroup {
+  background-color: #ffffff;
+  color: #0f172a !important;
+}
+
+html.light select option:disabled {
+  color: #64748b !important;
+}
+
 /* Giữ chữ trắng cho các nút bấm chính có nền màu đậm (Start/Stop/Upload/Export/Active Tab) */
 html.light .bg-cyan-600,
 html.light .bg-cyan-600 *,

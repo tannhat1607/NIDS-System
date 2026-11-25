@@ -70,13 +70,10 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
   }, [profileFilter]);
 
   const status = (wsConnected ? liveStatus : null) || (runtimeError ? null : runtime);
-  const isMonitoring = status?.is_monitoring ?? false;
-  const mode = status?.active_profile === 'AUTO' ? 'Hybrid Multi-Model' : status?.active_profile ?? '—';
   const currentHistory = history?.profile === profileFilter ? history : null;
   const stats = currentHistory?.stats;
   const topAttacks = (stats?.distribution ?? []).filter(item => item.detection_status === 'ATTACK').slice(0, 5);
   const number = (value?: number) => value?.toLocaleString() ?? '—';
-  const state = !status ? 'Chưa có trạng thái' : isMonitoring ? 'Đang giám sát' : status.last_error ? 'Đã dừng · Có lỗi' : 'Đang chờ';
   const cards = [
     { label: 'Luồng đã xử lý', value: number(status?.total_flows_seen), detail: 'Packets (phiên giám sát): ' + number(status?.packets_processed), icon: Layers, color: 'text-cyan-400' },
     { label: 'Cảnh báo ATTACK', value: number(status?.total_attacks), detail: 'Tích lũy qua các phiên', icon: ShieldAlert, color: 'text-red-400' },
@@ -96,19 +93,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
         </button>
       </header>
 
-      <section className="space-y-3" aria-label="Trạng thái giám sát">
-        <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className={'h-2.5 w-2.5 shrink-0 rounded-full ' + (isMonitoring ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500')} />
-            <div>
-              <h2 className="text-sm font-bold text-slate-100">{state}</h2>
-              <p className="mt-1 text-xs text-slate-400">{mode}{status?.data_source ? ' · ' + status.data_source : ''}{status?.interface ? ' · ' + status.interface : ''}</p>
-            </div>
-          </div>
-          <span className={'text-xs font-medium ' + (wsConnected ? 'text-emerald-400' : 'text-amber-300')}>
-            WebSocket {wsConnected ? 'Connected' : 'Disconnected'}
-          </span>
-        </div>
+      <section className="space-y-3" aria-label="Thống kê hoạt động">
         {status?.last_error && <p className="text-xs text-red-300">{status.last_error}</p>}
         {!status && runtimeError && <p className="text-xs text-red-300">Không thể lấy trạng thái từ backend.</p>}
         <div className="flex flex-wrap items-center justify-between gap-2">

@@ -40,6 +40,7 @@ export function LiveMonitoringPage({
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [statusData, setStatusData] = useState<MonitoringStatus | null>(null);
   const [tableRecords, setTableRecords] = useState<DetectionAlert[]>([]);
+  const [showModelDetails, setShowModelDetails] = useState(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: 'info' | 'error'; text: string } | null>(null);
 
@@ -93,6 +94,7 @@ export function LiveMonitoringPage({
 
   const handleProfileChange = async (newProfile: string) => {
     setSelectedProfile(newProfile);
+    setUploadFile(null);
     if (newProfile === 'AUTO' && selectedSource === 'CSV_REPLAY') setSelectedSource('PCAP_REPLAY');
     if (!isMonitoring) {
       try {
@@ -181,300 +183,252 @@ export function LiveMonitoringPage({
   const latestHybrid = tableRecords.find(record => record.dataset_profile === 'AUTO');
 
   return (
-    <div className="space-y-6">
-      {/* Control Panel */}
-      <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+    <div className="space-y-4 min-w-0 max-w-full">
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
               <Radio className={`w-5 h-5 ${isMonitoring ? 'text-emerald-400 animate-pulse' : 'text-cyan-400'}`} />
-              Hybrid Multi-Model Monitoring
+              Live Monitoring
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Chọn profile CNN-LSTM, nguồn dữ liệu (LIVE / CSV Replay / PCAP Replay) và theo dõi kết quả phát hiện thời gian thực
+            <p className="text-xs text-slate-400 mt-1">
+              {isMonitoring ? 'Monitoring active' : 'Ready to monitor'}
+              {isMonitoring && ` | ${effectiveStatus?.active_profile} | ${effectiveStatus?.data_source}`}
+              {isMonitoring && effectiveStatus?.data_source === 'LIVE' && effectiveStatus.interface && ` | ${effectiveStatus.interface}`}
             </p>
           </div>
-
-          <div className="flex items-center gap-3">
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                wsConnected
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-              }`}
-            >
-              WebSocket: {wsConnected ? 'CONNECTED' : 'RECONNECTING...'}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${wsConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`}>
+              WebSocket: {wsConnected ? 'CONNECTED' : 'RECONNECTING'}
             </span>
-
-            {!isMonitoring ? (
-              <button
-                onClick={handleStartMonitoring}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow transition disabled:opacity-50"
-              >
-                <Play className="w-4 h-4" />
-                Start Monitoring
-              </button>
-            ) : (
-              <button
-                onClick={handleStopMonitoring}
-                disabled={busy}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-500 text-white shadow transition disabled:opacity-50"
-              >
-                <Square className="w-4 h-4" />
-                Stop Monitoring
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={isMonitoring ? handleStopMonitoring : handleStartMonitoring}
+              disabled={busy}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white shadow transition disabled:opacity-50 ${isMonitoring ? 'bg-red-600 hover:bg-red-500' : 'bg-cyan-600 hover:bg-cyan-500'}`}
+            >
+              {isMonitoring ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <button type="button" disabled={busy || isMonitoring} onClick={() => handleProfileChange('AUTO')} aria-pressed={selectedProfile === 'AUTO'} className={`rounded-xl border p-4 text-left disabled:opacity-60 ${selectedProfile === 'AUTO' ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 bg-slate-900'}`}>
-            <span className="text-sm font-bold text-slate-100">Hybrid Multi-Model</span>
-            <span className="block text-xs text-slate-400 mt-1">Automatic fusion · Single-flow + temporal · LIVE / PCAP</span>
-          </button>
-          <button type="button" disabled={busy || isMonitoring} onClick={() => handleProfileChange(selectedProfile === 'AUTO' ? 'CIC-IDS2017' : selectedProfile)} aria-pressed={selectedProfile !== 'AUTO'} className={`rounded-xl border p-4 text-left disabled:opacity-60 ${selectedProfile !== 'AUTO' ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 bg-slate-900'}`}>
-            <span className="text-sm font-bold text-slate-100">Single-model experiment</span>
-            <span className="block text-xs text-slate-400 mt-1">Independent evaluation · CSV / PCAP / LIVE</span>
-          </button>
-        </div>
-        {/* Form Controls */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              1. Model profile
-            </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 border-t border-slate-800 pt-3">
+          <label className="min-w-0 text-xs font-semibold text-slate-300">
+            Monitoring model
             <select
               value={selectedProfile}
-              disabled={isMonitoring || busy || selectedProfile === 'AUTO'}
+              disabled={isMonitoring || busy}
               onChange={(e) => handleProfileChange(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
+              className="mt-1.5 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
             >
-              {selectedProfile === 'AUTO' && <option value="AUTO">Both models · AUTO</option>}
-              {profiles.map((p) => (
-                <option key={p.profile_id} value={p.profile_id}>
-                  {p.profile_id} ({p.n_features} features, {p.n_classes} classes, window={p.window_size})
-                </option>
-              ))}
-              {profiles.length === 0 && (
-                <>
-                  <option value="CIC-IDS2017">CIC-IDS2017 (70 features, 12 classes, window=1)</option>
-                  <option value="CIC-DDoS2019">CIC-DDoS2019 (66 features, 17 classes, window=8)</option>
-                </>
-              )}
+              <option value="AUTO">Hybrid Multi-Model (AUTO)</option>
+              <optgroup label="Single-model experiment">
+                {profiles.map((p) => (
+                  <option key={p.profile_id} value={p.profile_id}>{p.profile_id}</option>
+                ))}
+                {profiles.length === 0 && (
+                  <>
+                    <option value="CIC-IDS2017">CIC-IDS2017</option>
+                    <option value="CIC-DDoS2019">CIC-DDoS2019</option>
+                  </>
+                )}
+              </optgroup>
             </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              2. Nguồn dữ liệu (Data Source)
-            </label>
+          </label>
+          <label className="min-w-0 text-xs font-semibold text-slate-300">
+            Data source
             <select
               value={selectedSource}
-              disabled={isMonitoring}
-              onChange={(e) => setSelectedSource(e.target.value as any)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
+              disabled={isMonitoring || busy}
+              onChange={(e) => {
+                setSelectedSource(e.target.value as typeof selectedSource);
+                setUploadFile(null);
+              }}
+              className="mt-1.5 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
             >
-              <option value="CSV_REPLAY" disabled={selectedProfile === 'AUTO'}>CSV_REPLAY (Single model)</option>
-              <option value="PCAP_REPLAY">PCAP_REPLAY (Scapy Flow Extractor)</option>
-              <option value="LIVE">LIVE (Scapy Live Interface Sniffer)</option>
+              <option value="LIVE">LIVE - Network interface</option>
+              <option value="PCAP_REPLAY">PCAP Replay</option>
+              <option value="CSV_REPLAY" disabled={selectedProfile === 'AUTO'}>CSV Replay (single model)</option>
             </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              3. Network Interface (Dành cho LIVE)
+          </label>
+          {selectedSource === 'LIVE' ? (
+            <label className="min-w-0 text-xs font-semibold text-slate-300">
+              Network interface
+              <select
+                value={selectedInterface}
+                disabled={isMonitoring || busy}
+                onChange={(e) => setSelectedInterface(e.target.value)}
+                className="mt-1.5 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
+              >
+                {interfaces.map((iface) => (
+                  <option key={iface.id} value={iface.id}>{iface.name} ({iface.ip || 'no-ip'})</option>
+                ))}
+              </select>
             </label>
-            <select
-              value={selectedInterface}
-              disabled={isMonitoring || selectedSource !== 'LIVE'}
-              onChange={(e) => setSelectedInterface(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-50"
-            >
-              {interfaces.map((iface) => (
-                <option key={iface.id} value={iface.id}>
-                  {iface.name} ({iface.ip || 'no-ip'})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              4. Tốc độ Replay (Delay ms / flow)
+          ) : (
+            <label className="min-w-0 text-xs font-semibold text-slate-300">
+              Replay delay (ms / flow)
+              <input
+                type="number"
+                min={0}
+                max={2000}
+                step={20}
+                value={replayDelayMs}
+                disabled={isMonitoring || busy}
+                onChange={(e) => setReplayDelayMs(Number(e.target.value))}
+                className="mt-1.5 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
+              />
             </label>
-            <input
-              type="number"
-              min={0}
-              max={2000}
-              step={20}
-              value={replayDelayMs}
-              disabled={isMonitoring || selectedSource === 'LIVE'}
-              onChange={(e) => setReplayDelayMs(Number(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-50"
-            />
-          </div>
+          )}
         </div>
 
-        {/* Upload Custom CSV / PCAP */}
-        <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3 text-xs">
-            <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
-            <span className="text-slate-300">Upload file CSV hoặc PCAP tùy chỉnh:</span>
+        {selectedSource === 'LIVE' ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <span>Live capture: <strong className="text-amber-300 font-mono">{effectiveStatus?.live_validation_status || 'READY FOR LINUX VALIDATION'}</strong></span>
+            <span>Session packets: <strong className="text-slate-200">{effectiveStatus?.data_source === 'LIVE' ? effectiveStatus.packets_processed : '-'}</strong></span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3 border-t border-slate-800 pt-3 text-xs">
+            <label className="flex items-center gap-2 text-slate-300 shrink-0" htmlFor="replay-file">
+              <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
+              Custom replay file
+            </label>
             <input
+              key={`${selectedProfile}:${selectedSource}`}
+              id="replay-file"
               type="file"
+              disabled={busy || isMonitoring}
               accept={selectedProfile === 'AUTO' ? '.pcap,.pcapng' : '.csv,.pcap,.pcapng'}
               onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-              className="text-xs text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-cyan-300 hover:file:bg-slate-700"
+              className="min-w-0 max-w-full text-xs text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-cyan-300 hover:file:bg-slate-700 disabled:opacity-60"
             />
             {uploadFile && (
               <button
+                type="button"
                 onClick={handleUploadAndRun}
                 disabled={busy || isMonitoring}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition disabled:opacity-50"
               >
-                <Upload className="w-3.5 h-3.5" />
-                Chạy File Upload
+                <Upload className="w-3.5 h-3.5" /> Run File
               </button>
             )}
           </div>
+        )}
 
-          <div className="text-xs text-slate-400">
-            Trạng thái kiểm chứng Live Capture:{' '}
-            <span className="text-amber-300 font-mono font-semibold">
-              {effectiveStatus?.live_validation_status || 'READY FOR LINUX VALIDATION'}
-            </span>
-          </div>
-        </div>
-
-        {effectiveStatus?.last_error && <p className="text-xs text-red-300">{effectiveStatus.last_error}</p>}
+        {effectiveStatus?.last_error && <p className="text-xs text-red-300" role="alert">{effectiveStatus.last_error}</p>}
         {message && (
-          <div
-            className={`px-4 py-2.5 rounded-lg text-xs flex items-center gap-2 border ${
-              message.type === 'error'
-                ? 'bg-red-500/10 border-red-500/30 text-red-300'
-                : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-200'
-            }`}
-          >
-            {message.type === 'error' ? (
-              <AlertCircle className="w-4 h-4 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-            )}
+          <div role={message.type === 'error' ? 'alert' : 'status'} className={`px-3 py-2 rounded-lg text-xs flex items-center gap-2 border ${message.type === 'error' ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-200'}`}>
+            {message.type === 'error' ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
             <span>{message.text}</span>
           </div>
         )}
-      </div>
+      </section>
 
-      <ModelStatusPanel profiles={profiles} mode={effectiveStatus?.is_monitoring ? effectiveStatus.active_profile : selectedProfile} monitoring={isMonitoring} />
-      {(selectedProfile === 'AUTO' || selectedProfile === 'CIC-DDoS2019') && <TemporalBufferPanel status={effectiveStatus} />}
-      {selectedProfile === 'AUTO' && <HybridDecision record={latestHybrid} />}
-
-      {/* Realtime Stream Table */}
-      <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+      <section className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden min-w-0">
+        <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-200">
-              Luồng giám sát và kết quả suy luận thời gian thực (Realtime Detection Stream)
-            </h2>
-            <p className="text-xs text-slate-400">
-              Hiển thị trực tiếp kết quả từ CNN-LSTM Detection Engine qua WebSocket ({tableRecords.length} bản ghi)
-            </p>
+            <h2 className="text-sm font-semibold text-slate-200">Realtime Detection Stream</h2>
+            <p className="text-xs text-slate-400 mt-1">{tableRecords.length} recent records | {isMonitoring ? 'Monitoring active' : 'Standby'}</p>
           </div>
-          <div className="flex items-center gap-4 text-xs text-slate-400">
-            <span>
-              Inferences: <strong className="text-slate-200">{effectiveStatus?.total_inferences || 0}</strong>
-            </span>
-            <span>
-              Alerts: <strong className="text-red-400">{effectiveStatus?.total_attacks || 0}</strong>
-            </span>
-            <span>
-              Buffering: <strong className="text-amber-300">{effectiveStatus?.total_buffering || 0}</strong>
-            </span>
-          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={showModelDetails} onChange={(e) => setShowModelDetails(e.target.checked)} className="accent-cyan-500" />
+            Show per-model results
+          </label>
+        </div>
+        <div className="px-4 pt-3 pb-2 text-xs text-slate-400">Cumulative detection totals</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 px-4 pb-3">
+          {[
+            { label: 'Inferences', value: effectiveStatus?.total_inferences, color: 'text-cyan-300' },
+            { label: 'Alerts', value: effectiveStatus?.total_attacks, color: 'text-red-400' },
+            { label: 'Benign', value: effectiveStatus?.total_benign, color: 'text-emerald-400' },
+            { label: 'Buffering', value: effectiveStatus?.total_buffering, color: 'text-amber-300' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-1">
+              <span className="text-xs text-slate-400">{label}</span>
+              <strong className={`text-lg tabular-nums ${color}`}>{value?.toLocaleString() ?? '-'}</strong>
+            </div>
+          ))}
         </div>
 
-        <div className="overflow-x-auto max-h-[520px]">
+        <div className="overflow-auto max-h-[min(60vh,640px)] min-w-0 border-t border-slate-800">
           <table className="w-full text-left border-collapse text-xs">
             <thead className="sticky top-0 bg-slate-900 text-slate-400 border-b border-slate-800 uppercase z-10">
               <tr>
-                <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4">Source IP</th>
-                <th className="py-3 px-4">Destination IP</th>
-                <th className="py-3 px-4">Protocol</th>
-                <th className="py-3 px-4">CIC-IDS2017</th>
-                <th className="py-3 px-4">CIC-DDoS2019</th>
-                <th className="py-3 px-4">Final Status</th>
-                <th className="py-3 px-4">Predicted Attack Type</th>
-                <th className="py-3 px-4">Model Score</th>
-                <th className="py-3 px-4">Window / Source</th>
-                <th className="py-3 px-4 text-right">Latency</th>
+                <th scope="col" className="py-3 px-3">Time</th>
+                <th scope="col" className="py-3 px-3">Source IP</th>
+                <th scope="col" className="py-3 px-3">Destination IP</th>
+                <th scope="col" className="py-3 px-3">Protocol</th>
+                <th scope="col" className="py-3 px-3">Final status</th>
+                <th scope="col" className="py-3 px-3">Prediction</th>
+                <th scope="col" className="py-3 px-3">Score / Window</th>
+                <th scope="col" className="py-3 px-3">Source</th>
+                <th scope="col" className="py-3 px-3 text-right">Latency</th>
+                {showModelDetails && (
+                  <>
+                    <th scope="col" className="py-3 px-3">CIC-IDS2017</th>
+                    <th scope="col" className="py-3 px-3">CIC-DDoS2019</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70">
               {tableRecords.map((rec) => (
-                <tr
-                  key={rec.alert_id}
-                  className={`transition ${
-                    rec.detection_status === 'ATTACK'
-                      ? 'bg-red-950/20 hover:bg-red-950/30'
-                      : rec.detection_status === 'BUFFERING'
-                      ? 'bg-amber-950/10 hover:bg-amber-950/20'
-                      : 'hover:bg-slate-800/40'
-                  }`}
-                >
-                  <td className="py-2.5 px-4 font-mono text-slate-300">
-                    {rec.detected_at.replace('T', ' ').slice(11, 23)}
-                  </td>
-                  <td className="py-2.5 px-4 font-mono text-slate-200">
-                    {rec.source_ip}:{rec.source_port}
-                  </td>
-                  <td className="py-2.5 px-4 font-mono text-slate-200">
-                    {rec.destination_ip}:{rec.destination_port}
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <ProtocolBadge protocol={rec.protocol} />
-                  </td>
-                  <td className="py-2.5 px-4"><ModelResult record={rec} model="CIC-IDS2017" /></td>
-                  <td className="py-2.5 px-4"><ModelResult record={rec} model="CIC-DDoS2019" /></td>
-                  <td className="py-2.5 px-4">
-                    <StatusBadge status={rec.detection_status} />
-                  </td>
-                  <td className="py-2.5 px-4 font-semibold text-slate-100">
+                <tr key={rec.alert_id} className={`transition ${rec.detection_status === 'ATTACK' ? 'bg-red-950/20 hover:bg-red-950/30' : rec.detection_status === 'BUFFERING' ? 'bg-amber-950/10 hover:bg-amber-950/20' : 'hover:bg-slate-800/40'}`}>
+                  <td className="py-3 px-3 font-mono text-slate-300 whitespace-nowrap">{rec.detected_at.replace('T', ' ').slice(11, 23)}</td>
+                  <td className="py-3 px-3 font-mono text-slate-200 whitespace-nowrap">{rec.source_ip}:{rec.source_port}</td>
+                  <td className="py-3 px-3 font-mono text-slate-200 whitespace-nowrap">{rec.destination_ip}:{rec.destination_port}</td>
+                  <td className="py-3 px-3"><ProtocolBadge protocol={rec.protocol} /></td>
+                  <td className="py-3 px-3"><StatusBadge status={rec.detection_status} /></td>
+                  <td className="py-3 px-3 font-semibold text-slate-100">
                     {rec.predicted_attack_type}
                     <div className="mt-1 text-xs font-normal text-slate-400">{selectedModel(rec)}</div>
                   </td>
-                  <td className="py-2.5 px-4 font-mono">
+                  <td className="py-3 px-3 font-mono whitespace-nowrap">
                     {rec.detection_status === 'BUFFERING' ? (
-                      <span className="text-amber-300">
-                        {rec.buffered_flows}/{rec.required_window_size} flows
-                      </span>
+                      <span className="text-amber-300">{rec.buffered_flows}/{rec.required_window_size} flows</span>
                     ) : (
                       <span className="text-cyan-300">{(rec.class_score * 100).toFixed(2)}%</span>
                     )}
                   </td>
-                  <td className="py-2.5 px-4 space-x-1.5">
-                    <span className="text-slate-400">{rec.dataset_profile}</span>
+                  <td className="py-3 px-3 whitespace-nowrap">
                     <SourceBadge source={rec.data_source} />
+                    <div className="mt-1 text-slate-400">{rec.dataset_profile}</div>
                   </td>
-                  <td className="py-2.5 px-4 text-right font-mono text-slate-300">
-                    {rec.detection_status === 'BUFFERING'
-                      ? '—'
-                      : `${rec.inference_latency_ms.toFixed(2)} ms`}
+                  <td className="py-3 px-3 text-right font-mono text-slate-300 whitespace-nowrap">
+                    {rec.detection_status === 'BUFFERING' ? '-' : `${rec.inference_latency_ms.toFixed(2)} ms`}
                   </td>
+                  {showModelDetails && (
+                    <>
+                      <td className="py-3 px-3"><ModelResult record={rec} model="CIC-IDS2017" /></td>
+                      <td className="py-3 px-3"><ModelResult record={rec} model="CIC-DDoS2019" /></td>
+                    </>
+                  )}
                 </tr>
               ))}
               {tableRecords.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-10 text-center text-slate-500">
-                    Nhấn "Start Monitoring" để bắt đầu luồng suy luận trực tiếp.
+                  <td colSpan={showModelDetails ? 11 : 9} className="py-12 text-center text-slate-400">
+                    <Radio className="mx-auto w-6 h-6 mb-2 text-cyan-400" />
+                    {isMonitoring ? 'Waiting for completed flows and inference results...' : 'Start monitoring or run a replay file to view detection results.'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
+
+      <details className="bg-[#111827] border border-slate-800 rounded-xl p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-200">
+          Model diagnostics <span className="ml-2 text-xs font-normal text-slate-400">Model status, temporal buffer, hybrid decision</span>
+        </summary>
+        <div className="mt-4 space-y-3">
+          <ModelStatusPanel profiles={profiles} mode={effectiveStatus?.is_monitoring ? effectiveStatus.active_profile : selectedProfile} monitoring={isMonitoring} />
+          {(selectedProfile === 'AUTO' || selectedProfile === 'CIC-DDoS2019') && <TemporalBufferPanel status={effectiveStatus} />}
+          {selectedProfile === 'AUTO' && <HybridDecision record={latestHybrid} />}
+        </div>
+      </details>
     </div>
   );
 }
