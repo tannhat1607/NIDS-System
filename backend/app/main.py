@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
             "CIC-IDS2017",
             24,
         )
-        model_registry.set_active_profile("CIC-IDS2017")
+    detection_engine.start_new_session(profile_id=settings.default_profile)
 
     logger.info("CNN-LSTM NIDS Backend ready on %s:%d", settings.host, settings.port)
     yield
@@ -148,6 +148,7 @@ def get_profiles() -> Dict[str, Any]:
     return {
         "active_profile": model_registry.active_profile_id,
         "profiles": model_registry.list_profiles(),
+        "detection_modes": ["AUTO", "CIC-IDS2017", "CIC-DDoS2019"],
     }
 
 
@@ -161,13 +162,16 @@ def select_profile(req: ProfileSelectRequest) -> Dict[str, Any]:
         )
     try:
         loaded = model_registry.set_active_profile(req.profile_id)
-        detection_engine.start_new_session(profile_id=loaded.profile_id, reset_analytics=False)
+        mode = model_registry.active_profile_id
+        detection_engine.start_new_session(profile_id=mode, reset_analytics=False)
         db_repository.log_event(
             event_type="PROFILE_SWITCH",
-            message=f"Switched active model profile to {loaded.profile_id}",
+            message=f"Switched active model profile to {mode}",
             severity="INFO",
             session_id=detection_engine.current_session_id,
         )
+        if loaded is None:
+            return {"active_profile": mode, "window_size": 8, "stride": 8, "models": ["CIC-IDS2017", "CIC-DDoS2019"]}
         return {
             "active_profile": loaded.profile_id,
             "n_features": loaded.n_features,
@@ -212,7 +216,7 @@ def start_monitoring(req: StartMonitoringRequest) -> Dict[str, Any]:
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -289,6 +293,8 @@ def run_builtin_sample_replay(
     if src_upper == "PCAP_REPLAY":
         target_path = Path(samples["sample_pcap"])
     elif src_upper == "CSV_REPLAY":
+        if profile_id.strip().upper() == "AUTO":
+            raise HTTPException(status_code=400, detail="AUTO requires PCAP_REPLAY; select a single model for CSV.")
         normalized = model_registry.get_profile(profile_id).profile_id
         target_path = Path(
             samples["cic_ids2017_csv"]

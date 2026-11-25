@@ -162,14 +162,18 @@ class MonitoringService:
         if source_upper not in ("LIVE", "CSV_REPLAY", "PCAP_REPLAY"):
             raise ValueError(f"Unsupported data_source: {data_source}")
 
+        if profile_id.strip().upper() == "AUTO" and source_upper == "CSV_REPLAY":
+            raise ValueError("AUTO requires LIVE or PCAP_REPLAY; select a single model for CSV.")
+
         with self._lock:
             if self._is_monitoring:
                 raise RuntimeError("A monitoring session is already running. Stop it first.")
 
             # Chuyển profile và khởi tạo session mới
             profile = self.registry.set_active_profile(profile_id)
+            mode = self.registry.active_profile_id
             session_id = self.detector.start_new_session(
-                profile_id=profile.profile_id, reset_analytics=False
+                profile_id=mode, reset_analytics=False
             )
 
             # Xóa hàng đợi flow cũ
@@ -196,7 +200,7 @@ class MonitoringService:
                 else:
                     resolved_file = Path(
                         sample_paths["cic_ids2017_csv"]
-                        if profile.profile_id == "CIC-IDS2017"
+                        if mode == "CIC-IDS2017"
                         else sample_paths["cic_ddos2019_csv"]
                     )
                 if not resolved_file.exists():
@@ -218,14 +222,14 @@ class MonitoringService:
 
             self.repository.create_session(
                 session_id=session_id,
-                profile_id=profile.profile_id,
+                profile_id=mode,
                 data_source=source_upper,
                 interface_or_file=interface or (str(resolved_file) if resolved_file else ""),
             )
             self.repository.log_event(
                 event_type="MONITORING_START",
                 message=(
-                    f"Started {source_upper} monitoring with profile {profile.profile_id}"
+                    f"Started {source_upper} monitoring with profile {mode}"
                 ),
                 severity="INFO",
                 session_id=session_id,
@@ -234,7 +238,7 @@ class MonitoringService:
             # Khởi động luồng tiêu thụ flow & chạy CNN-LSTM inference
             self._inference_thread = threading.Thread(
                 target=self._inference_consumer_loop,
-                args=(session_id, profile.profile_id),
+                args=(session_id, mode),
                 name="NIDS-InferenceWorker",
                 daemon=True,
             )
@@ -345,13 +349,17 @@ class MonitoringService:
         max_rows: Optional[int] = 200,
     ) -> Dict[str, Any]:
         """Xử lý trực tiếp một file CSV hoặc PCAP được upload hoặc chỉ định qua REST API."""
-        profile = self.registry.get_profile(profile_id)
+        mode = profile_id or self.registry.active_profile_id
+        if mode.strip().upper() == "AUTO" and data_source == "CSV_REPLAY":
+            raise ValueError("AUTO requires PCAP_REPLAY; select a single model for CSV.")
+        profile = self.registry.set_active_profile(mode)
+        mode = self.registry.active_profile_id
         session_id = self.detector.start_new_session(
-            profile_id=profile.profile_id, reset_analytics=False
+            profile_id=mode, reset_analytics=False
         )
         self.repository.create_session(
             session_id=session_id,
-            profile_id=profile.profile_id,
+            profile_id=mode,
             data_source=data_source,
             interface_or_file=str(file_path.name),
         )
@@ -375,7 +383,7 @@ class MonitoringService:
 
         for flow in flows:
             rec = self.detector.process_flow(
-                flow, profile_id=profile.profile_id, session_id=session_id
+                flow, profile_id=mode, session_id=session_id
             )
             self.repository.insert_detection(rec)
             rec_dict = rec.to_dict()
@@ -404,7 +412,7 @@ class MonitoringService:
 
         return {
             "session_id": session_id,
-            "profile_id": profile.profile_id,
+            "profile_id": mode,
             "data_source": data_source,
             "file_name": file_path.name,
             "packets_processed": packets_count,

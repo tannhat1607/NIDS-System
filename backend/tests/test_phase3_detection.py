@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from backend.app.analysis.beaconing import BeaconingDetector
 from backend.app.analysis.graph_analysis import NetworkGraphAnalyzer
@@ -10,6 +12,63 @@ from backend.app.core.detection_engine import DetectionEngine
 from backend.app.core.inference import InferenceEngine
 from backend.app.core.model_registry import ModelRegistry
 from backend.app.network.flow_extractor import CompletedFlow
+
+
+@pytest.mark.parametrize(
+    "primary_status, temporal_status, selected_model",
+    [
+        ("BENIGN", "ATTACK", "CIC-DDoS2019"),
+        ("ATTACK", "BENIGN", "CIC-IDS2017"),
+        ("ATTACK", "ATTACK", "CIC-IDS2017"),
+        ("BENIGN", "BENIGN", "CIC-IDS2017"),
+    ],
+)
+def test_auto_fusion(registry, primary_status, temporal_status, selected_model):
+    def prediction(profile_id, status, label, score):
+        return SimpleNamespace(
+            profile_id=profile_id, detection_status=status,
+            predicted_label=label if status == "ATTACK" else "BENIGN",
+            class_score=score, attack_score=score if status == "ATTACK" else 1 - score,
+            gaussian_anomaly_score=0.0, gaussian_threshold=1.0,
+            gaussian_is_anomalous=False, latency_ms=1.0,
+        )
+
+    inference = Mock()
+    inference.predict_single_flow.return_value = prediction(
+        "CIC-IDS2017", primary_status, "PortScan", 0.60
+    )
+    inference.predict_temporal_window.return_value = prediction(
+        "CIC-DDoS2019", temporal_status, "DrDoS_DNS", 0.99
+    )
+    callback = Mock()
+    detector = DetectionEngine(registry=registry, engine=inference, on_detection=callback)
+    detector.start_new_session("AUTO", reset_analytics=True)
+    records = [
+        detector.process_flow(CompletedFlow(
+            flow_id=f"hybrid-{i}", src_ip="192.0.2.1", dst_ip="192.0.2.2",
+            src_port=50000 + i, dst_port=443, protocol=6,
+            start_time=1700000000.0 + i, end_time=1700000000.5 + i,
+            timestamp_iso=f"2026-01-01T00:00:0{i}Z", packet_count=1,
+            features={}, data_source="PCAP_REPLAY",
+        ))
+        for i in range(8)
+    ]
+    assert all(r.dataset_profile == "AUTO" for r in records)
+    assert all(r.detection_status == primary_status for r in records[:7])
+    assert [r.buffered_flows for r in records] == list(range(1, 9))
+    assert records[-1].detection_status == (
+        "ATTACK" if "ATTACK" in (primary_status, temporal_status) else "BENIGN"
+    )
+    assert records[-1].class_score == (0.99 if selected_model == "CIC-DDoS2019" else 0.60)
+    assert records[-1].inference_latency_ms == 2.0
+    assert f"Displayed scores and label: {selected_model}" in records[-1].note
+    assert inference.predict_single_flow.call_count == 8
+    assert inference.predict_temporal_window.call_count == 1
+    assert callback.call_count == 8
+    assert detector.get_runtime_metrics()["total_inferences"] == 8
+    assert detector.get_graph_summary().total_flows_in_graph == 8
+    detector.start_new_session("AUTO")
+    assert detector.get_runtime_metrics()["buffered_ips"] == {}
 
 
 @pytest.fixture(scope="module")

@@ -10,7 +10,7 @@ Hệ thống sử dụng trực tiếp 2 bộ trọng số **TorchScript CNN-LST
 
 ```text
 artifacts/
-├── CIC-IDS2017/                     # Profile mặc định: Giám sát tổng quát (70 features -> 12 classes)
+├── CIC-IDS2017/                     # Giám sát tổng quát (70 features -> 12 classes)
 │   ├── cnn_lstm.pt                  # TorchScript FlowFeatureCNNLSTM (Batch, 70)
 │   ├── best.pt                      # Checkpoint PyTorch gốc (Epoch 7)
 │   ├── preprocessor.joblib          # SimpleImputer(median) + StandardScaler + LabelEncoder
@@ -81,10 +81,11 @@ npm run dev
 
 1. Trên giao diện Web Dashboard, mở trang **2. Live Monitoring**.
 2. Chọn Model Profile:
+   - `AUTO` (mặc định): kết hợp CIC-IDS2017 trên từng flow và CIC-DDoS2019 khi đủ cửa sổ 8 flows; dùng với LIVE hoặc PCAP_REPLAY.
    - `CIC-IDS2017` (suy luận từng flow đơn lẻ, 70 đặc trưng, 12 lớp).
    - `CIC-DDoS2019` (gom theo `Source IP`, cửa sổ 8 flows, `stride=8`, `0 < duration <= 300s`, 66 đặc trưng, 17 lớp).
 3. Chọn Data Source:
-   - `CSV_REPLAY`: Phát lại file CSV mẫu có sẵn hoặc upload file CSV trích xuất từ CICFlowMeter.
+   - `CSV_REPLAY`: Phát lại file CSV mẫu có sẵn hoặc upload file CSV trích xuất từ CICFlowMeter. Chọn một profile đơn lẻ tương ứng với bộ đặc trưng của CSV.
    - `PCAP_REPLAY`: Đọc file `.pcap` bằng Scapy `PcapReader`, gom gói tin thành bidirectional flow qua `FlowExtractor` (70 đặc trưng) và đưa vào CNN-LSTM.
 4. Nhấn **Start Monitoring** để xem luồng cảnh báo truyền trực tiếp qua WebSocket, hoặc chọn file `.csv` / `.pcap` từ máy tính rồi nhấn **Chạy File Upload**.
 
@@ -151,9 +152,22 @@ npm run build
 npm run preview -- --host 127.0.0.1 --port 4173
 ```
 
+Frontend proxy chuyển tiếp `/api/*` và `/ws/live` từ cổng `4173` sang FastAPI tại `127.0.0.1:8000`.
+Proxy được khai báo cho cả Vite dev server và preview server, vì vậy frontend sử dụng URL tương đối cùng origin.
+Không cần cấu hình `VITE_API_BASE_URL` hoặc `VITE_WS_HOST` khi chạy hai dịch vụ trên cùng máy như hướng dẫn trên.
+
+Xác minh kết nối REST thông qua frontend sau khi cả hai dịch vụ đã khởi động:
+
+```bash
+curl -f http://127.0.0.1:4173/api/health
+```
+
+Phản hồi cần là JSON có `"status": "healthy"`. Trên trang **Live Monitoring**, trạng thái WebSocket cần hiển thị đã kết nối.
+Nếu lệnh kiểm tra thất bại, xác nhận backend vẫn đang chạy bằng `curl -f http://127.0.0.1:8000/api/health`.
+
 Mở trình duyệt trên Kali Linux tại `http://127.0.0.1:4173`:
 1. Vào trang **2. Live Monitoring**.
-2. Chọn Profile (`CIC-IDS2017` hoặc `CIC-DDoS2019`).
+2. Chọn `AUTO` để sử dụng Hybrid Multi-Model NIDS; chọn `CIC-IDS2017` hoặc `CIC-DDoS2019` khi cần đối chứng từng mô hình.
 3. Chọn nguồn dữ liệu `LIVE` và chọn card mạng (`eth0`).
 4. Nhấn **Start Monitoring**.
 

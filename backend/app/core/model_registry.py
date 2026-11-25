@@ -210,8 +210,12 @@ class ModelRegistry:
             self.load_profile(pid)
         return dict(self._loaded)
 
-    def set_active_profile(self, profile_id: str) -> LoadedProfile:
+    def set_active_profile(self, profile_id: str) -> Optional[LoadedProfile]:
         """Lựa chọn profile đang hoạt động và đảm bảo profile đó đã được load."""
+        if profile_id.strip().upper() == "AUTO":
+            self.load_all_profiles()
+            self._active_profile_id = "AUTO"
+            return None
         normalized_id = self._normalize_profile_id(profile_id)
         profile = self.load_profile(normalized_id)
         self._active_profile_id = normalized_id

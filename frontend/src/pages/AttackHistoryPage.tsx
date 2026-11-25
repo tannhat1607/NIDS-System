@@ -122,6 +122,7 @@ export function AttackHistoryPage() {
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100"
           >
             <option value="ALL">Tất cả Profiles</option>
+            <option value="AUTO">AUTO (Hybrid)</option>
             <option value="CIC-IDS2017">CIC-IDS2017</option>
             <option value="CIC-DDoS2019">CIC-DDoS2019</option>
           </select>

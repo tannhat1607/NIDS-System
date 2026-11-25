@@ -90,6 +90,7 @@ export function ModelPerformancePage() {
         </div>
       </div>
 
+      <p className="text-xs text-amber-300">AUTO hybrid performance has not been evaluated on a shared labeled test set. Metrics below are for individual models.</p>
       {/* Important Distinction Alert for CIC-DDoS2019 */}
       {activeTab === 'CIC-DDoS2019' ? (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3 text-xs text-slate-200">

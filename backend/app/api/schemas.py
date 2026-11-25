@@ -17,11 +17,11 @@ class ProfileSelectRequest(BaseModel):
 
 class StartMonitoringRequest(BaseModel):
     profile_id: str = Field(
-        default="CIC-IDS2017",
-        description="Model profile to use for monitoring ('CIC-IDS2017' or 'CIC-DDoS2019')",
+        default="AUTO",
+        description="Monitoring mode: AUTO, CIC-IDS2017 or CIC-DDoS2019",
     )
     data_source: str = Field(
-        default="CSV_REPLAY",
+        default="PCAP_REPLAY",
         description="Data source: 'LIVE', 'CSV_REPLAY', or 'PCAP_REPLAY'",
     )
     interface: Optional[str] = Field(

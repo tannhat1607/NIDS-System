@@ -50,13 +50,13 @@ export const nidsApi = {
     }>('/api/health'),
 
   getProfiles: () =>
-    requestJson<{ active_profile: string; profiles: ModelProfileInfo[] }>('/api/profiles'),
+    requestJson<{ active_profile: string; profiles: ModelProfileInfo[]; detection_modes: string[] }>('/api/profiles'),
 
   selectProfile: (profile_id: string) =>
     requestJson<{
       active_profile: string;
-      n_features: number;
-      n_classes: number;
+      n_features?: number;
+      n_classes?: number;
       window_size: number;
       stride: number;
     }>('/api/profiles/select', {

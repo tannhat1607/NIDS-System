@@ -44,9 +44,24 @@ def test_health_and_profiles_endpoints() -> None:
 
     p_data = get_profiles()
     assert len(p_data["profiles"]) == 2
+    assert "AUTO" in p_data["detection_modes"]
 
     ifaces = get_interfaces()
     assert len(ifaces["interfaces"]) >= 1
+
+
+def test_auto_sample_pcap_replay() -> None:
+    assert select_profile(ProfileSelectRequest(profile_id="AUTO"))["active_profile"] == "AUTO"
+    result = run_builtin_sample_replay(profile_id="AUTO", data_source="PCAP_REPLAY")
+    assert result["flows_processed"] >= 8
+    assert result["inferences_completed"] == result["flows_processed"]
+    assert result["buffering_count"] == 0
+    assert all(record["dataset_profile"] == "AUTO" for record in result["records"])
+    assert any(record["buffered_flows"] == 8 for record in result["records"])
+    detail = get_alert_detail(result["records"][-1]["alert_id"])
+    assert detail["note"] == result["records"][-1]["note"]
+    with pytest.raises(ValueError, match="AUTO requires"):
+        monitoring_service.start_monitoring("AUTO", "CSV_REPLAY")
 
 
 def test_switch_profile_and_direct_inference() -> None:

@@ -14,15 +14,15 @@ flowchart TD
     Capture --> FlowExt["Bidirectional Flow Extractor (70 CICFlowMeter Features)"]
     FlowExt --> ProfileSel{"Active Model Profile"}
 
-    ProfileSel -->|CIC-IDS2017| Prep2017["Preprocessing (70 Features: Imputer + StandardScaler)"]
+    ProfileSel -->|AUTO or CIC-IDS2017| Prep2017["Preprocessing (70 Features: Imputer + StandardScaler)"]
     Prep2017 --> Model2017["Feature-Sequence CNN-LSTM (Batch, 70) -> 12 Classes"]
 
-    ProfileSel -->|CIC-DDoS2019 V2| TempWin["Temporal Window Buffer (Group by Source IP, 8 Flows, Stride 8, <=300s)"]
-    TempWin -->|"< 8 Flows"| Buffering["Status: BUFFERING"]
+    ProfileSel -->|AUTO or CIC-DDoS2019| TempWin["Temporal Window Buffer (Group by Source IP, 8 Flows, Stride 8, <=300s)"]
+    TempWin -->|"< 8 Flows"| Buffering["AUTO: primary decision; single temporal mode: BUFFERING"]
     TempWin -->|"8 Valid Flows"| Prep2019["Temporal Preprocessing (8 x 66 Features)"]
     Prep2019 --> Model2019["Temporal CNN-LSTM (Batch, 8, 66) -> 17 Classes"]
 
-    Model2017 --> DetEngine["Detection Engine (CNN-LSTM Argmax Decision)"]
+    Model2017 --> DetEngine["Detection Engine (AUTO: logical OR of model decisions)"]
     Model2019 --> DetEngine
     Buffering --> DetEngine
 
@@ -31,7 +31,11 @@ flowchart TD
     Storage --> Dashboard["React + TypeScript + Tailwind + Recharts SOC Dashboard"]
 ```
 
-| Thông số | Profile 1: `CIC-IDS2017` (Mặc định) | Profile 2: `CIC-DDoS2019` (`NIDS_Model_v1`) |
+**AUTO (Hybrid Multi-Model NIDS)** là chế độ giám sát mặc định cho LIVE và PCAP_REPLAY. Mỗi flow được CIC-IDS2017 phân loại ngay; CIC-DDoS2019 bổ sung kết quả khi đủ cửa sổ 8 flows hợp lệ cùng Source IP. Nếu một trong hai mô hình dự đoán ATTACK, kết quả hợp nhất là ATTACK. Khi cả hai dự đoán ATTACK, nhãn và điểm số hiển thị lấy từ CIC-IDS2017; nếu chỉ mô hình temporal dự đoán ATTACK, lấy kết quả từ CIC-DDoS2019. Nhật ký lưu cả hai dự đoán và nguồn điểm số. Điểm số giữa các mô hình không được cộng hoặc so sánh trực tiếp. Gaussian và Beaconing tiếp tục là phân tích bổ trợ.
+
+Chế độ AUTO xuất đúng một bản ghi cho mỗi flow đến; kết quả temporal mô tả cửa sổ theo Source IP và được đính kèm khi cửa sổ hoàn thành. Hai chế độ đơn lẻ vẫn dùng được với CSV_REPLAY. Chỉ số offline dưới đây thuộc từng mô hình riêng, chưa phải kết quả đánh giá của AUTO trên tập kiểm thử chung.
+
+| Thông số | Profile 1: `CIC-IDS2017` | Profile 2: `CIC-DDoS2019` (`NIDS_Model_v1`) |
 |---|---|---|
 | **Kiến trúc** | `FlowFeatureCNNLSTM` (Feature-sequence CNN-LSTM) | `TemporalCNNLSTM` (8-flow Temporal CNN-LSTM) |
 | **Kích thước đầu vào** | `(Batch, 70)` — phân loại từng flow | `(Batch, 8, 66)` — cửa sổ 8 flows theo `Source IP` (`stride=8`, $\le 300\text{s}$) |

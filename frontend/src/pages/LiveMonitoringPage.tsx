@@ -33,8 +33,8 @@ export function LiveMonitoringPage({
 }: LiveMonitoringPageProps) {
   const [profiles, setProfiles] = useState<ModelProfileInfo[]>([]);
   const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([]);
-  const [selectedProfile, setSelectedProfile] = useState<string>('CIC-IDS2017');
-  const [selectedSource, setSelectedSource] = useState<'CSV_REPLAY' | 'PCAP_REPLAY' | 'LIVE'>('CSV_REPLAY');
+  const [selectedProfile, setSelectedProfile] = useState<string>('AUTO');
+  const [selectedSource, setSelectedSource] = useState<'CSV_REPLAY' | 'PCAP_REPLAY' | 'LIVE'>('PCAP_REPLAY');
   const [selectedInterface, setSelectedInterface] = useState<string>('eth0');
   const [replayDelayMs, setReplayDelayMs] = useState<number>(80);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -52,6 +52,7 @@ export function LiveMonitoringPage({
       ]);
       setProfiles(pRes.profiles);
       setSelectedProfile(pRes.active_profile);
+      if (sRes.is_monitoring && (sRes.data_source === 'LIVE' || sRes.data_source === 'PCAP_REPLAY' || sRes.data_source === 'CSV_REPLAY')) setSelectedSource(sRes.data_source);
       setInterfaces(iRes.interfaces);
       if (iRes.interfaces.length > 0 && !selectedInterface) {
         setSelectedInterface(iRes.interfaces[0].id);
@@ -92,6 +93,7 @@ export function LiveMonitoringPage({
 
   const handleProfileChange = async (newProfile: string) => {
     setSelectedProfile(newProfile);
+    if (newProfile === 'AUTO' && selectedSource === 'CSV_REPLAY') setSelectedSource('PCAP_REPLAY');
     if (!isMonitoring) {
       try {
         await nidsApi.selectProfile(newProfile);
@@ -237,6 +239,7 @@ export function LiveMonitoringPage({
               onChange={(e) => handleProfileChange(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
             >
+              <option value="AUTO">AUTO - Hybrid Multi-Model NIDS</option>
               {profiles.map((p) => (
                 <option key={p.profile_id} value={p.profile_id}>
                   {p.profile_id} ({p.n_features} features, {p.n_classes} classes, window={p.window_size})
@@ -261,7 +264,7 @@ export function LiveMonitoringPage({
               onChange={(e) => setSelectedSource(e.target.value as any)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
             >
-              <option value="CSV_REPLAY">CSV_REPLAY (Flow Features CSV)</option>
+              <option value="CSV_REPLAY" disabled={selectedProfile === 'AUTO'}>CSV_REPLAY (Single model)</option>
               <option value="PCAP_REPLAY">PCAP_REPLAY (Scapy Flow Extractor)</option>
               <option value="LIVE">LIVE (Scapy Live Interface Sniffer)</option>
             </select>
@@ -333,6 +336,7 @@ export function LiveMonitoringPage({
           </div>
         </div>
 
+        {effectiveStatus?.last_error && <p className="text-xs text-red-300">{effectiveStatus.last_error}</p>}
         {message && (
           <div
             className={`px-4 py-2.5 rounded-lg text-xs flex items-center gap-2 border ${
@@ -352,7 +356,7 @@ export function LiveMonitoringPage({
       </div>
 
       {/* Temporal Window Buffering Banner for CIC-DDoS2019 */}
-      {selectedProfile === 'CIC-DDoS2019' && (
+      {(selectedProfile === 'CIC-DDoS2019' || selectedProfile === 'AUTO') && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
@@ -361,9 +365,9 @@ export function LiveMonitoringPage({
                 Temporal Window Buffering Active (CIC-DDoS2019 V2 — Window=8, Stride=8, MaxSpan=300s)
               </h3>
               <p className="text-xs text-slate-300 mt-0.5">
-                Profile CIC-DDoS2019 gom các flow theo <code className="text-amber-200">Source IP</code> và chỉ chạy
+                {selectedProfile === 'AUTO' ? 'AUTO: CIC-IDS2017 evaluates every flow; CIC-DDoS2019 evaluates each valid 8-flow window. Either model can raise an alert. Displayed scores belong to the selected model.' : <>Profile CIC-DDoS2019 gom các flow theo <code className="text-amber-200">Source IP</code> và chỉ chạy
                 Temporal CNN-LSTM khi tích lũy đủ 8 flows hợp lệ liên tiếp. Các flow đang chờ sẽ hiển thị trạng thái{' '}
-                <span className="text-amber-300 font-semibold">BUFFERING</span>.
+                <span className="text-amber-300 font-semibold">BUFFERING</span>.</>}
               </p>
             </div>
           </div>
@@ -449,6 +453,7 @@ export function LiveMonitoringPage({
                   </td>
                   <td className="py-2.5 px-4 font-semibold text-slate-100">
                     {rec.predicted_attack_type}
+                    {rec.dataset_profile === 'AUTO' && rec.note && <div className="mt-1 max-w-sm text-xs font-normal text-slate-400">{rec.note}</div>}
                   </td>
                   <td className="py-2.5 px-4 font-mono">
                     {rec.detection_status === 'BUFFERING' ? (

@@ -139,7 +139,9 @@ class DetectionEngine:
         session_id: Optional[str] = None,
     ) -> DetectionRecord:
         """Xử lý một CompletedFlow qua profile đang chọn (CIC-IDS2017 hoặc CIC-DDoS2019)."""
-        active_profile = self.registry.get_profile(profile_id)
+        mode = profile_id or self.registry.active_profile_id
+        hybrid = mode.strip().upper() == "AUTO"
+        active_profile = self.registry.get_profile("CIC-IDS2017" if hybrid else mode)
         active_session = session_id or self._current_session_id
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -160,6 +162,40 @@ class DetectionEngine:
             pred = self.engine.predict_single_flow(
                 flow.features, profile_id=active_profile.profile_id
             )
+            selected = pred
+            note = None
+            latency = pred.latency_ms
+            buffered = required = 1
+            if hybrid:
+                with self._lock:
+                    if self.temporal_buffer.session_id != active_session:
+                        self.temporal_buffer.reset(new_session_id=active_session)
+                    win_res = self.temporal_buffer.add_flow(flow)
+                buffered = win_res.buffered_count
+                required = win_res.required_window_size
+                note = (
+                    f"CIC-IDS2017: {pred.detection_status}/{pred.predicted_label} "
+                    f"(class={pred.class_score:.4f}, attack={pred.attack_score:.4f}); "
+                )
+                if win_res.status == "READY" and win_res.window_flows:
+                    temporal = self.engine.predict_temporal_window(
+                        [f.features for f in win_res.window_flows], profile_id="CIC-DDoS2019"
+                    )
+                    buffered = required
+                    latency += temporal.latency_ms
+                    note += (
+                        f"CIC-DDoS2019: {temporal.detection_status}/{temporal.predicted_label} "
+                        f"(class={temporal.class_score:.4f}, attack={temporal.attack_score:.4f}, "
+                        f"window end={win_res.window_flows[-1].timestamp_iso}); "
+                    )
+                    # The temporal result describes the completed source-IP window.
+                    if pred.detection_status != "ATTACK" and temporal.detection_status == "ATTACK":
+                        selected = temporal
+                    note += "Fusion: ATTACK if either model alerts; "
+                else:
+                    note += f"CIC-DDoS2019: {win_res.reason}; primary decision; "
+                note += f"Displayed scores and label: {selected.profile_id}"
+            pred = selected
             record = DetectionRecord(
                 alert_id=f"det-{uuid.uuid4().hex[:12]}",
                 detected_at=now_iso,
@@ -176,13 +212,14 @@ class DetectionEngine:
                 gaussian_anomaly_score=round(pred.gaussian_anomaly_score, 4),
                 gaussian_threshold=round(pred.gaussian_threshold, 4),
                 gaussian_is_anomalous=pred.gaussian_is_anomalous,
-                inference_latency_ms=round(pred.latency_ms, 4),
-                dataset_profile=active_profile.profile_id,
+                inference_latency_ms=round(latency, 4),
+                dataset_profile="AUTO" if hybrid else active_profile.profile_id,
                 monitoring_session=active_session,
                 data_source=flow.data_source,
-                buffered_flows=1,
-                required_window_size=1,
+                buffered_flows=buffered,
+                required_window_size=required,
                 ground_truth_label=flow.ground_truth_label,
+                note=note,
             )
             self._commit_inference_stats(flow, record)
             return record

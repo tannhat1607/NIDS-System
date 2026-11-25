@@ -176,7 +176,7 @@ export function App() {
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Active Profile:</span>
               <span className="font-mono font-bold text-cyan-300">
-                {liveStatus?.active_profile || 'CIC-IDS2017'}
+                {liveStatus?.active_profile || 'AUTO'}
               </span>
             </div>
             <div className="flex items-center justify-between">

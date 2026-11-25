@@ -88,7 +88,7 @@ class AppSettings:
 
     host: str = field(default_factory=lambda: os.getenv("NIDS_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: int(os.getenv("NIDS_PORT", "8000")))
-    default_profile: str = "CIC-IDS2017"
+    default_profile: str = "AUTO"
     flow_timeout_seconds: float = 120.0
     activity_timeout_seconds: float = 5.0
     max_active_flows: int = 10000

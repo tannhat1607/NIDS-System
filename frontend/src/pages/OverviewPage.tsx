@@ -63,7 +63,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
     return () => window.clearInterval(interval);
   }, [profileFilter]);
 
-  const activeProfile = liveStatus?.active_profile || traffic?.active_profile || 'CIC-IDS2017';
+  const activeProfile = liveStatus?.active_profile || traffic?.active_profile || 'AUTO';
   const isMonitoring = liveStatus?.is_monitoring ?? traffic?.is_monitoring ?? false;
   const totalPackets = liveStatus?.packets_processed || traffic?.packets_processed || 0;
   const totalFlows = liveStatus?.total_flows_seen || traffic?.total_flows_seen || 0;
@@ -107,6 +107,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
               className="bg-transparent text-cyan-300 font-semibold focus:outline-none"
             >
               <option value="ALL" className="bg-slate-900">Tất cả Profiles</option>
+              <option value="AUTO" className="bg-slate-900">AUTO (Hybrid)</option>
               <option value="CIC-IDS2017" className="bg-slate-900">CIC-IDS2017 (70 Features)</option>
               <option value="CIC-DDoS2019" className="bg-slate-900">CIC-DDoS2019 (8x66 Temporal)</option>
             </select>
@@ -136,7 +137,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
             <p className="text-xs text-slate-400 uppercase tracking-wider">Active Model Profile</p>
             <p className="text-lg font-bold text-cyan-400 mt-1">{activeProfile}</p>
             <p className="text-xs text-slate-400 mt-0.5">
-              {activeProfile === 'CIC-IDS2017'
+              {activeProfile === 'AUTO' ? 'Hybrid CNN-LSTM (Single Flow + Temporal Window)' : activeProfile === 'CIC-IDS2017'
                 ? 'Feature-sequence CNN-LSTM (12 Classes, Single Flow)'
                 : 'Temporal CNN-LSTM (17 Classes, Window 8 Flows)'}
             </p>
@@ -300,7 +301,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
           <div>
             <h2 className="text-sm font-semibold text-slate-200">Tỷ lệ BENIGN / ATTACK</h2>
-            <p className="text-xs text-slate-400">Quyết định bởi CNN-LSTM Argmax</p>
+            <p className="text-xs text-slate-400">Quyết định bởi CNN-LSTM</p>
           </div>
 
           <div className="h-52 my-2">
