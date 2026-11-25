@@ -1,33 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Activity,
-  AlertTriangle,
-  Cpu,
-  Gauge,
-  Layers,
-  Network,
-  RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
-} from 'lucide-react';
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { useEffect, useState } from 'react';
+import { Activity, AlertTriangle, ArrowRight, Gauge, Layers, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { nidsApi } from '../services/api';
-import { AttackStatsResponse, ModelProfileInfo, MonitoringStatus, TrafficStats } from '../types/nids';
-import { ProtocolBadge, SourceBadge, StatusBadge } from '../components/StatusBadge';
-import { HybridDecision, ModelStatusPanel, TemporalBufferPanel, selectedModel } from '../components/HybridPanels';
+import { AttackStatsResponse, DetectionAlert, MonitoringStatus } from '../types/nids';
+import { SourceBadge } from '../components/StatusBadge';
+import { selectedModel } from '../components/HybridPanels';
 
 interface OverviewPageProps {
   wsConnected: boolean;
@@ -36,467 +13,218 @@ interface OverviewPageProps {
 }
 
 export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPageProps) {
-  const [traffic, setTraffic] = useState<TrafficStats | null>(null);
-  const [attackStats, setAttackStats] = useState<AttackStatsResponse | null>(null);
-  const [profileFilter, setProfileFilter] = useState<string>('AUTO');
-  const [profiles, setProfiles] = useState<ModelProfileInfo[]>([]);
   const [runtime, setRuntime] = useState<MonitoringStatus | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = async () => {
-    try {
-      setError(null);
-      const [tRes, aRes, pRes, sRes] = await Promise.all([
-        nidsApi.getTrafficStats(profileFilter),
-        nidsApi.getAttackStats(profileFilter),
-        nidsApi.getProfiles(),
-        nidsApi.getMonitoringStatus(),
-      ]);
-      setTraffic(tRes);
-      setAttackStats(aRes);
-      setProfiles(pRes.profiles);
-      setRuntime(sRes);
-    } catch (err: any) {
-      setError(err?.message || 'Không thể tải dữ liệu tổng quan từ Backend API.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [runtimeError, setRuntimeError] = useState(false);
+  const [profileFilter, setProfileFilter] = useState('AUTO');
+  const [history, setHistory] = useState<{ profile: string; stats: AttackStatsResponse; alerts: DetectionAlert[] } | null>(null);
+  const [historyError, setHistoryError] = useState(false);
 
   useEffect(() => {
-    loadData();
-    const interval = window.setInterval(loadData, 4000);
-    return () => window.clearInterval(interval);
+    let cancelled = false;
+    let busy = false;
+    const load = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const result = await nidsApi.getMonitoringStatus();
+        if (!cancelled) {
+          setRuntime(result);
+          setRuntimeError(false);
+        }
+      } catch {
+        if (!cancelled) setRuntimeError(true);
+      } finally {
+        busy = false;
+      }
+    };
+    load();
+    const timer = window.setInterval(load, 4000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let busy = false;
+    setHistoryError(false);
+    const load = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const [stats, alerts] = await Promise.all([
+          nidsApi.getAttackStats(profileFilter),
+          nidsApi.getAlerts({ dataset_profile: profileFilter, detection_status: 'ATTACK', page: 1, page_size: 5 }),
+        ]);
+        if (!cancelled) {
+          setHistory({ profile: profileFilter, stats, alerts: alerts.items });
+          setHistoryError(false);
+        }
+      } catch {
+        if (!cancelled) setHistoryError(true);
+      } finally {
+        busy = false;
+      }
+    };
+    load();
+    const timer = window.setInterval(load, 4000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [profileFilter]);
 
-  const status = (wsConnected ? liveStatus : null) || runtime;
-  const activeProfile = status?.active_profile || traffic?.active_profile || 'AUTO';
+  const status = (wsConnected ? liveStatus : null) || (runtimeError ? null : runtime);
   const isMonitoring = status?.is_monitoring ?? false;
-  const totalPackets = status?.packets_processed ?? 0;
-  const totalFlows = status?.total_flows_seen ?? 0;
-  const totalInferences = (attackStats?.total_attacks ?? 0) + (attackStats?.total_benign ?? 0);
-  const totalAttacks = traffic?.total_attacks || 0;
-  const totalBenign = traffic?.total_benign || 0;
-  const latencyAvg = status?.latency_avg_ms ?? 0;
-  const latencyP95 = status?.latency_p95_ms ?? 0;
-
-  const pieData = [
-    { name: 'BENIGN', value: totalBenign, color: '#10b981' },
-    { name: 'ATTACK', value: totalAttacks, color: '#ef4444' },
+  const mode = status?.active_profile === 'AUTO' ? 'Hybrid Multi-Model' : status?.active_profile ?? '—';
+  const currentHistory = history?.profile === profileFilter ? history : null;
+  const stats = currentHistory?.stats;
+  const topAttacks = (stats?.distribution ?? []).filter(item => item.detection_status === 'ATTACK').slice(0, 5);
+  const number = (value?: number) => value?.toLocaleString() ?? '—';
+  const state = !status ? 'Chưa có trạng thái' : isMonitoring ? 'Đang giám sát' : status.last_error ? 'Đã dừng · Có lỗi' : 'Đang chờ';
+  const cards = [
+    { label: 'Luồng đã xử lý', value: number(status?.total_flows_seen), detail: 'Packets (phiên giám sát): ' + number(status?.packets_processed), icon: Layers, color: 'text-cyan-400' },
+    { label: 'Cảnh báo ATTACK', value: number(status?.total_attacks), detail: 'Tích lũy qua các phiên', icon: ShieldAlert, color: 'text-red-400' },
+    { label: 'Kết quả BENIGN', value: number(status?.total_benign), detail: 'Tích lũy qua các phiên', icon: ShieldCheck, color: 'text-emerald-400' },
+    { label: 'Độ trễ trung bình', value: status?.total_inferences ? status.latency_avg_ms.toFixed(2) + ' ms' : '—', detail: 'P95: ' + (status?.total_inferences ? status.latency_p95_ms.toFixed(2) + ' ms' : '—') + ' · Tối đa 5.000 mẫu gần nhất', icon: Gauge, color: 'text-slate-100' },
   ];
 
-  const barData = (attackStats?.distribution || []).slice(0, 10).map((item) => ({
-    name: item.attack_type,
-    count: item.count,
-    isAttack: item.detection_status === 'ATTACK',
-  }));
-
   return (
-    <div className="space-y-6">
-      {/* Header Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-[#111827] border border-slate-800 rounded-xl p-4">
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 pr-10">
         <div>
-          <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-cyan-400" />
-            Hybrid Multi-Model NIDS — Overview
-          </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Giám sát lưu lượng mạng, phân bố cảnh báo CNN-LSTM và hiệu năng suy luận theo thời gian thực
-          </p>
+          <h1 className="text-2xl font-bold text-slate-100">Overview</h1>
+          <p className="mt-1 text-xs text-slate-400">Tổng quan an ninh mạng · Hybrid Multi-Model NIDS</p>
         </div>
+        <button onClick={() => onNavigate('live')} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-xs font-semibold text-white">
+          <Activity className="h-4 w-4" /> Live Monitoring <ArrowRight className="h-4 w-4" />
+        </button>
+      </header>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5">
-            <span className="text-slate-400">History filter:</span>
-            <select
-              value={profileFilter}
-              onChange={(e) => setProfileFilter(e.target.value)}
-              className="bg-transparent text-cyan-300 font-semibold focus:outline-none"
-            >
-              <option value="ALL" className="bg-slate-900">Tất cả Profiles</option>
-              <option value="AUTO" className="bg-slate-900">AUTO (Hybrid)</option>
-              <option value="CIC-IDS2017" className="bg-slate-900">CIC-IDS2017 (70 Features)</option>
-              <option value="CIC-DDoS2019" className="bg-slate-900">CIC-DDoS2019 (8x66 Temporal)</option>
-            </select>
-          </div>
-
-          <button
-            onClick={loadData}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Làm mới
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* System Status Banner */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 uppercase tracking-wider">Active Model Profile</p>
-            <p className="text-lg font-bold text-cyan-400 mt-1">{activeProfile === 'AUTO' ? 'Hybrid Multi-Model' : activeProfile}</p>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {activeProfile === 'AUTO' ? 'Hybrid CNN-LSTM (Single Flow + Temporal Window)' : activeProfile === 'CIC-IDS2017'
-                ? 'Feature-sequence CNN-LSTM (12 Classes, Single Flow)'
-                : 'Temporal CNN-LSTM (17 Classes, Window 8 Flows)'}
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-            <Cpu className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 uppercase tracking-wider">System & WebSocket State</p>
-            <div className="flex items-center gap-2 mt-1">
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  isMonitoring ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'
-                }`}
-              />
-              <span className="text-lg font-bold text-slate-100">
-                {isMonitoring ? `MONITORING (${status?.data_source})` : 'STANDBY / READY'}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              WebSocket: {wsConnected ? 'Connected (Realtime)' : 'Disconnected'} •{' '}
-              {traffic?.live_validation_status || 'READY FOR LINUX VALIDATION'}
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-            <Network className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 uppercase tracking-wider">CPU Inference Latency</p>
-            <p className="text-lg font-bold text-slate-100 mt-1">
-              {latencyAvg.toFixed(2)} ms{' '}
-              <span className="text-xs font-normal text-slate-400">(P95: {latencyP95.toFixed(2)} ms)</span>
-            </p>
-            <p className="text-xs text-slate-400 mt-0.5">
-              TorchScript CPU • model.eval() + inference_mode()
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-            <Gauge className="w-6 h-6" />
-          </div>
-        </div>
-      </div>
-
-      <ModelStatusPanel profiles={profiles} mode={activeProfile} monitoring={isMonitoring} />
-      {activeProfile === 'AUTO' && <HybridDecision record={status?.recent_detections?.find(record => record.dataset_profile === 'AUTO') ?? traffic?.latest_alerts.find(record => record.dataset_profile === 'AUTO')} />}
-      {(activeProfile === 'AUTO' || activeProfile === 'CIC-DDoS2019') && <TemporalBufferPanel status={status} />}
-      <p className="text-xs text-slate-400">Packets, flows and latency describe the current runtime. Detection counts and charts use the selected history filter.</p>
-      {/* 4 Key Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>TỔNG PACKETS & FLOWS</span>
-            <Layers className="w-4 h-4 text-cyan-400" />
-          </div>
-          <p className="text-2xl font-bold text-slate-100 mt-2">
-            {totalFlows.toLocaleString()} <span className="text-sm font-normal text-slate-400">flows</span>
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            Packets đã xử lý: <span className="text-slate-200 font-medium">{totalPackets.toLocaleString()}</span>
-          </p>
-        </div>
-
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>KẾT QUẢ PHÁT HIỆN (LỊCH SỬ)</span>
-            <Cpu className="w-4 h-4 text-blue-400" />
-          </div>
-          <p className="text-2xl font-bold text-slate-100 mt-2">{totalInferences.toLocaleString()}</p>
-          <p className="text-xs text-slate-400 mt-1">
-            Lượt buffering (runtime):{' '}
-            <span className="text-amber-300 font-medium">{status?.total_buffering ?? 0}</span>
-          </p>
-        </div>
-
-        <div className="bg-[#111827] border border-red-500/30 rounded-xl p-4">
-          <div className="flex items-center justify-between text-red-400 text-xs font-medium">
-            <span>CẢNH BÁO TẤN CÔNG (ATTACK)</span>
-            <ShieldAlert className="w-4 h-4 text-red-400" />
-          </div>
-          <p className="text-2xl font-bold text-red-400 mt-2">{totalAttacks.toLocaleString()}</p>
-          <p className="text-xs text-slate-400 mt-1">
-            Tỷ lệ ATTACK:{' '}
-            <span className="text-red-300 font-semibold">
-              {((traffic?.attack_ratio || 0) * 100).toFixed(1)}%
-            </span>
-          </p>
-        </div>
-
-        <div className="bg-[#111827] border border-emerald-500/30 rounded-xl p-4">
-          <div className="flex items-center justify-between text-emerald-400 text-xs font-medium">
-            <span>LƯU LƯỢNG BÌNH THƯỜNG (BENIGN)</span>
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          </div>
-          <p className="text-2xl font-bold text-emerald-400 mt-2">{totalBenign.toLocaleString()}</p>
-          <p className="text-xs text-slate-400 mt-1">
-            Tỷ lệ BENIGN:{' '}
-            <span className="text-emerald-300 font-semibold">
-              {((traffic?.benign_ratio || 0) * 100).toFixed(1)}%
-            </span>
-          </p>
-        </div>
-      </div>
-
-      {/* Charts Row: Attack Distribution & BENIGN/ATTACK Ratio */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-[#111827] border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
+      <section className="space-y-3" aria-label="Trạng thái giám sát">
+        <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className={'h-2.5 w-2.5 shrink-0 rounded-full ' + (isMonitoring ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500')} />
             <div>
-              <h2 className="text-sm font-semibold text-slate-200">
-                Phân bố các lớp dự đoán (Predicted Class Distribution)
-              </h2>
-              <p className="text-xs text-slate-400">
-                Thống kê số lượng cảnh báo theo từng nhóm tấn công và lưu lượng BENIGN
-              </p>
+              <h2 className="text-sm font-bold text-slate-100">{state}</h2>
+              <p className="mt-1 text-xs text-slate-400">{mode}{status?.data_source ? ' · ' + status.data_source : ''}{status?.interface ? ' · ' + status.interface : ''}</p>
             </div>
           </div>
-
-          {loading ? (
-            <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
-              Đang tải biểu đồ phân bố...
-            </div>
-          ) : barData.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-slate-500 text-sm">
-              Chưa có dữ liệu suy luận. Hãy chạy Replay hoặc Live Monitoring.
-            </div>
-          ) : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barData} margin={{ top: 10, right: 20, left: 0, bottom: 25 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#94a3b8"
-                    fontSize={11}
-                    angle={-18}
-                    textAnchor="end"
-                    interval={0}
-                  />
-                  <YAxis stroke="#94a3b8" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                    {barData.map((entry, idx) => (
-                      <Cell key={idx} fill={entry.isAttack ? '#ef4444' : '#10b981'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          <span className={'text-xs font-medium ' + (wsConnected ? 'text-emerald-400' : 'text-amber-300')}>
+            WebSocket {wsConnected ? 'Connected' : 'Disconnected'}
+          </span>
         </div>
+        {status?.last_error && <p className="text-xs text-red-300">{status.last_error}</p>}
+        {!status && runtimeError && <p className="text-xs text-red-300">Không thể lấy trạng thái từ backend.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-200">Thống kê hoạt động</h2>
+          <span className="text-xs text-slate-400">Tích lũy từ lần reset bộ đếm</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          {cards.map(({ label, value, detail, icon: Icon, color }) => (
+            <div key={label} className="bg-[#111827] rounded-xl border border-slate-800 p-4 min-w-0">
+              <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                <span>{label}</span><Icon className={'h-4 w-4 shrink-0 ' + color} />
+              </div>
+              <p className={'mt-2 text-2xl font-bold tabular-nums ' + color}>{value}</p>
+              <p className="mt-1 text-xs text-slate-400">{detail}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+      <section className="space-y-3" aria-label="Thống kê lịch sử">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-200">Tỷ lệ BENIGN / ATTACK</h2>
-            <p className="text-xs text-slate-400">Quyết định bởi CNN-LSTM</p>
+            <h2 className="text-sm font-semibold text-slate-200">Lịch sử phát hiện</h2>
+            <p className="mt-1 text-xs text-slate-400">Tất cả phiên đã lưu · cập nhật mỗi 4 giây</p>
           </div>
-
-          <div className="h-52 my-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={52}
-                  outerRadius={78}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    borderColor: '#334155',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-xs border-t border-slate-800 pt-3">
-            <div className="flex items-center justify-between bg-slate-900/70 px-3 py-2 rounded-lg">
-              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                BENIGN
-              </span>
-              <span className="font-mono text-slate-200">{totalBenign}</span>
+          <label className="flex items-center gap-2 text-xs text-slate-400">
+            Profile
+            <select value={profileFilter} onChange={e => setProfileFilter(e.target.value)} className="bg-slate-900 rounded-lg border border-slate-700 px-3 py-2 text-slate-200">
+              <option value="AUTO">Hybrid (AUTO)</option>
+              <option value="ALL">Tất cả profiles</option>
+              <option value="CIC-IDS2017">CIC-IDS2017</option>
+              <option value="CIC-DDoS2019">CIC-DDoS2019</option>
+            </select>
+          </label>
+        </div>
+        {historyError && <p className="flex items-center gap-2 text-xs text-amber-300"><AlertTriangle className="h-4 w-4" /> Không thể cập nhật lịch sử. {currentHistory ? 'Đang hiển thị dữ liệu lần tải gần nhất.' : 'Chưa có dữ liệu.'}</p>}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+          <div className="xl:col-span-2 bg-[#111827] rounded-xl border border-slate-800 p-4 min-w-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-200">Diễn biến phát hiện</h3>
+              <div className="flex flex-wrap gap-3 text-xs">
+                <span className="text-emerald-400">BENIGN {number(stats?.total_benign)}</span>
+                <span className="text-red-400">ATTACK {number(stats?.total_attacks)}</span>
+              </div>
             </div>
-            <div className="flex items-center justify-between bg-slate-900/70 px-3 py-2 rounded-lg">
-              <span className="flex items-center gap-1.5 text-red-400 font-medium">
-                <span className="w-2 h-2 rounded-full bg-red-400" />
-                ATTACK
-              </span>
-              <span className="font-mono text-slate-200">{totalAttacks}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Attack Timeline */}
-      <div className="bg-[#111827] border border-slate-800 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-200">
-              Attack & Traffic Timeline
-            </h2>
-            <p className="text-xs text-slate-400">
-              Diễn biến số lượng cảnh báo ATTACK và lưu lượng BENIGN theo mốc thời gian phát hiện
-            </p>
-          </div>
-        </div>
-        <div className="h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={attackStats?.timeline || []}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="time_bucket" stroke="#94a3b8" fontSize={11} />
-              <YAxis stroke="#94a3b8" fontSize={11} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#0f172a',
-                  borderColor: '#334155',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="attack_count"
-                name="ATTACK"
-                stroke="#ef4444"
-                fill="#ef4444"
-                fillOpacity={0.2}
-              />
-              <Area
-                type="monotone"
-                dataKey="benign_count"
-                name="BENIGN"
-                stroke="#06b6d4"
-                fill="#06b6d4"
-                fillOpacity={0.15}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Latest Alerts Table */}
-      <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-200">Cảnh báo và kết quả phát hiện mới nhất</h2>
-            <p className="text-xs text-slate-400">10 bản ghi gần nhất từ cơ sở dữ liệu SQLite</p>
-          </div>
-          <button
-            onClick={() => onNavigate('history')}
-            className="text-xs text-cyan-400 hover:text-cyan-300 font-medium"
-          >
-            Xem toàn bộ lịch sử →
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-900/80 text-slate-400 border-b border-slate-800 uppercase">
-                <th className="py-3 px-4">Thời gian</th>
-                <th className="py-3 px-4">Source IP</th>
-                <th className="py-3 px-4">Destination IP</th>
-                <th className="py-3 px-4">Protocol</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Predicted Class</th>
-                <th className="py-3 px-4">Score</th>
-                <th className="py-3 px-4">Gaussian</th>
-                <th className="py-3 px-4">Profile / Nguồn</th>
-                <th className="py-3 px-4 text-right">Latency</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/70">
-              {(traffic?.latest_alerts || []).map((al) => (
-                <tr key={al.alert_id} className="hover:bg-slate-800/40 transition">
-                  <td className="py-2.5 px-4 font-mono text-slate-300">
-                    {al.detected_at.replace('T', ' ').slice(0, 19)}
-                  </td>
-                  <td className="py-2.5 px-4 font-mono text-slate-200">
-                    {al.source_ip}:{al.source_port}
-                  </td>
-                  <td className="py-2.5 px-4 font-mono text-slate-200">
-                    {al.destination_ip}:{al.destination_port}
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <ProtocolBadge protocol={al.protocol} />
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <StatusBadge status={al.detection_status} />
-                  </td>
-                  <td className="py-2.5 px-4 font-semibold text-slate-100">
-                    {al.predicted_attack_type}
-                    <div className="text-xs font-normal text-slate-400">{selectedModel(al)}</div>
-                  </td>
-                  <td className="py-2.5 px-4 font-mono text-cyan-300">
-                    {(al.class_score * 100).toFixed(1)}%
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <span
-                      className={`font-mono px-2 py-0.5 rounded text-xs ${
-                        al.gaussian_is_anomalous
-                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                          : 'text-slate-400'
-                      }`}
-                    >
-                      {al.gaussian_anomaly_score.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-4 space-x-1.5">
-                    <span className="text-slate-300 font-medium">{al.dataset_profile}</span>
-                    <SourceBadge source={al.data_source} />
-                  </td>
-                  <td className="py-2.5 px-4 text-right font-mono text-slate-400">
-                    {al.inference_latency_ms.toFixed(2)} ms
-                  </td>
-                </tr>
-              ))}
-              {(!traffic?.latest_alerts || traffic.latest_alerts.length === 0) && (
-                <tr>
-                  <td colSpan={10} className="py-8 text-center text-slate-500">
-                    Chưa có cảnh báo nào được ghi nhận.
-                  </td>
-                </tr>
+            <p className="mt-1 text-xs text-slate-400">30 mốc phút có dữ liệu gần nhất · UTC</p>
+            <div className="h-52 mt-3">
+              {stats?.timeline.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.timeline} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                    <XAxis dataKey="time_bucket" tickFormatter={value => String(value).slice(11, 16)} stroke="#94a3b8" fontSize={11} minTickGap={24} />
+                    <YAxis stroke="#94a3b8" fontSize={11} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: 8, color: '#e2e8f0', fontSize: 12 }} />
+                    <Area type="monotone" dataKey="benign_count" name="BENIGN" stroke="#10b981" fill="#10b981" fillOpacity={0.12} isAnimationActive={false} />
+                    <Area type="monotone" dataKey="attack_count" name="ATTACK" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">{stats ? 'Chưa có dữ liệu phát hiện.' : historyError ? 'Không tải được dữ liệu.' : 'Đang tải dữ liệu...'}</div>
               )}
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          <div className="bg-[#111827] rounded-xl border border-slate-800 p-4 space-y-3 min-w-0">
+            <h3 className="text-sm font-semibold text-slate-200">Tấn công thường gặp</h3>
+            <div>
+              <p className="text-2xl font-bold text-red-400">{stats?.total_records ? (stats.attack_ratio * 100).toFixed(1) + '%' : '—'}</p>
+              <p className="mt-1 text-xs text-slate-400">Tỷ lệ bản ghi được dự đoán ATTACK</p>
+            </div>
+            <div className="border-t border-slate-800 pt-3 space-y-3">
+              {topAttacks.map(item => (
+                <div key={item.attack_type}>
+                  <div className="flex justify-between gap-2 text-xs text-slate-300"><span className="break-all">{item.attack_type}</span><span className="font-mono">{number(item.count)}</span></div>
+                  <div className="mt-1.5 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div className="h-full rounded-full bg-red-400" style={{ width: (item.count / Math.max(1, stats?.total_attacks ?? 0) * 100) + '%' }} />
+                  </div>
+                </div>
+              ))}
+              {topAttacks.length === 0 && <p className="text-xs text-slate-400">{stats ? 'Chưa ghi nhận ATTACK.' : 'Chưa có dữ liệu.'}</p>}
+            </div>
+          </div>
         </div>
-      </div>
+
+        <div className="bg-[#111827] rounded-xl border border-slate-800 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-slate-800">
+            <h3 className="text-sm font-semibold text-slate-200">5 cảnh báo gần nhất</h3>
+            <button onClick={() => onNavigate('history')} className="inline-flex items-center gap-1 text-xs font-medium text-cyan-400 hover:text-cyan-300">Xem lịch sử <ArrowRight className="h-3.5 w-3.5" /></button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-slate-400">
+                <tr className="border-b border-slate-800">
+                  <th scope="col" className="px-4 py-3">Thời gian (UTC)</th>
+                  <th scope="col" className="px-4 py-3">Source IP</th>
+                  <th scope="col" className="px-4 py-3">Loại tấn công</th>
+                  <th scope="col" className="px-4 py-3">Mô hình</th>
+                  <th scope="col" className="px-4 py-3">Nguồn</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70">
+                {currentHistory?.alerts.map(alert => (
+                  <tr key={alert.alert_id} className="hover:bg-slate-800/40">
+                    <td className="px-4 py-3 font-mono whitespace-nowrap text-slate-300">{alert.detected_at.replace('T', ' ').slice(0, 19)}</td>
+                    <td className="px-4 py-3 font-mono text-slate-200">{alert.source_ip}</td>
+                    <td className="px-4 py-3 font-semibold text-red-400">{alert.predicted_attack_type}</td>
+                    <td className="px-4 py-3 text-slate-300">{selectedModel(alert)}</td>
+                    <td className="px-4 py-3"><SourceBadge source={alert.data_source} /></td>
+                  </tr>
+                ))}
+                {!currentHistory?.alerts.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">{currentHistory ? 'Chưa có cảnh báo tấn công.' : historyError ? 'Không tải được lịch sử.' : 'Đang tải lịch sử...'}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
