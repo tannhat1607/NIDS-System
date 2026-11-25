@@ -96,10 +96,10 @@ export function App() {
             </div>
             <div>
               <span className="text-xs font-extrabold tracking-[0.14em] uppercase text-slate-100 block">
-                VISION NIDS UI
+                HYBRID NIDS
               </span>
               <span className="text-[10px] text-cyan-400 font-medium block">
-                CNN-LSTM Security Center
+                Multi-Model Security Center
               </span>
             </div>
           </div>
@@ -176,7 +176,7 @@ export function App() {
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Active Profile:</span>
               <span className="font-mono font-bold text-cyan-300">
-                {liveStatus?.active_profile || 'AUTO'}
+                {liveStatus?.active_profile === 'AUTO' ? 'Hybrid' : liveStatus?.active_profile || '—'}
               </span>
             </div>
             <div className="flex items-center justify-between">

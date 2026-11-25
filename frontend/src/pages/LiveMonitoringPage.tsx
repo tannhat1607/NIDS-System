@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
-  Clock,
   FileSpreadsheet,
   Play,
   Radio,
@@ -17,6 +16,7 @@ import {
   NetworkInterfaceInfo,
 } from '../types/nids';
 import { ProtocolBadge, SourceBadge, StatusBadge } from '../components/StatusBadge';
+import { HybridDecision, ModelResult, ModelStatusPanel, TemporalBufferPanel, selectedModel } from '../components/HybridPanels';
 
 interface LiveMonitoringPageProps {
   wsConnected: boolean;
@@ -88,7 +88,7 @@ export function LiveMonitoringPage({
     }
   }, [liveFeed]);
 
-  const effectiveStatus = liveStatus || statusData;
+  const effectiveStatus = (wsConnected ? liveStatus : null) || statusData;
   const isMonitoring = effectiveStatus?.is_monitoring ?? false;
 
   const handleProfileChange = async (newProfile: string) => {
@@ -111,6 +111,7 @@ export function LiveMonitoringPage({
     setBusy(true);
     setMessage(null);
     clearLiveFeed();
+    setTableRecords([]);
     try {
       const res = await nidsApi.startMonitoring({
         profile_id: selectedProfile,
@@ -177,7 +178,7 @@ export function LiveMonitoringPage({
     }
   };
 
-  const bufferedIps = effectiveStatus?.buffered_ips || {};
+  const latestHybrid = tableRecords.find(record => record.dataset_profile === 'AUTO');
 
   return (
     <div className="space-y-6">
@@ -187,7 +188,7 @@ export function LiveMonitoringPage({
           <div>
             <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
               <Radio className={`w-5 h-5 ${isMonitoring ? 'text-emerald-400 animate-pulse' : 'text-cyan-400'}`} />
-              Live Traffic Monitoring & Replay Control
+              Hybrid Multi-Model Monitoring
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
               Chọn profile CNN-LSTM, nguồn dữ liệu (LIVE / CSV Replay / PCAP Replay) và theo dõi kết quả phát hiện thời gian thực
@@ -227,19 +228,29 @@ export function LiveMonitoringPage({
           </div>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button type="button" disabled={busy || isMonitoring} onClick={() => handleProfileChange('AUTO')} aria-pressed={selectedProfile === 'AUTO'} className={`rounded-xl border p-4 text-left disabled:opacity-60 ${selectedProfile === 'AUTO' ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 bg-slate-900'}`}>
+            <span className="text-sm font-bold text-slate-100">Hybrid Multi-Model</span>
+            <span className="block text-xs text-slate-400 mt-1">Automatic fusion · Single-flow + temporal · LIVE / PCAP</span>
+          </button>
+          <button type="button" disabled={busy || isMonitoring} onClick={() => handleProfileChange(selectedProfile === 'AUTO' ? 'CIC-IDS2017' : selectedProfile)} aria-pressed={selectedProfile !== 'AUTO'} className={`rounded-xl border p-4 text-left disabled:opacity-60 ${selectedProfile !== 'AUTO' ? 'border-cyan-500 bg-cyan-500/10' : 'border-slate-700 bg-slate-900'}`}>
+            <span className="text-sm font-bold text-slate-100">Single-model experiment</span>
+            <span className="block text-xs text-slate-400 mt-1">Independent evaluation · CSV / PCAP / LIVE</span>
+          </button>
+        </div>
         {/* Form Controls */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              1. Chọn Model Profile (CNN-LSTM)
+              1. Model profile
             </label>
             <select
               value={selectedProfile}
-              disabled={isMonitoring}
+              disabled={isMonitoring || busy || selectedProfile === 'AUTO'}
               onChange={(e) => handleProfileChange(e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 focus:border-cyan-500 focus:outline-none disabled:opacity-60"
             >
-              <option value="AUTO">AUTO - Hybrid Multi-Model NIDS</option>
+              {selectedProfile === 'AUTO' && <option value="AUTO">Both models · AUTO</option>}
               {profiles.map((p) => (
                 <option key={p.profile_id} value={p.profile_id}>
                   {p.profile_id} ({p.n_features} features, {p.n_classes} classes, window={p.window_size})
@@ -312,7 +323,7 @@ export function LiveMonitoringPage({
             <span className="text-slate-300">Upload file CSV hoặc PCAP tùy chỉnh:</span>
             <input
               type="file"
-              accept=".csv,.pcap,.pcapng"
+              accept={selectedProfile === 'AUTO' ? '.pcap,.pcapng' : '.csv,.pcap,.pcapng'}
               onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
               className="text-xs text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-cyan-300 hover:file:bg-slate-700"
             />
@@ -355,35 +366,9 @@ export function LiveMonitoringPage({
         )}
       </div>
 
-      {/* Temporal Window Buffering Banner for CIC-DDoS2019 */}
-      {(selectedProfile === 'CIC-DDoS2019' || selectedProfile === 'AUTO') && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <h3 className="text-xs font-bold text-amber-300 uppercase tracking-wide">
-                Temporal Window Buffering Active (CIC-DDoS2019 V2 — Window=8, Stride=8, MaxSpan=300s)
-              </h3>
-              <p className="text-xs text-slate-300 mt-0.5">
-                {selectedProfile === 'AUTO' ? 'AUTO: CIC-IDS2017 evaluates every flow; CIC-DDoS2019 evaluates each valid 8-flow window. Either model can raise an alert. Displayed scores belong to the selected model.' : <>Profile CIC-DDoS2019 gom các flow theo <code className="text-amber-200">Source IP</code> và chỉ chạy
-                Temporal CNN-LSTM khi tích lũy đủ 8 flows hợp lệ liên tiếp. Các flow đang chờ sẽ hiển thị trạng thái{' '}
-                <span className="text-amber-300 font-semibold">BUFFERING</span>.</>}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {Object.entries(bufferedIps).map(([ip, cnt]) => (
-              <span
-                key={ip}
-                className="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-amber-500/40 text-xs font-mono text-amber-200"
-              >
-                {ip}: {cnt}/8 flows
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      <ModelStatusPanel profiles={profiles} mode={effectiveStatus?.is_monitoring ? effectiveStatus.active_profile : selectedProfile} monitoring={isMonitoring} />
+      {(selectedProfile === 'AUTO' || selectedProfile === 'CIC-DDoS2019') && <TemporalBufferPanel status={effectiveStatus} />}
+      {selectedProfile === 'AUTO' && <HybridDecision record={latestHybrid} />}
 
       {/* Realtime Stream Table */}
       <div className="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden">
@@ -417,7 +402,9 @@ export function LiveMonitoringPage({
                 <th className="py-3 px-4">Source IP</th>
                 <th className="py-3 px-4">Destination IP</th>
                 <th className="py-3 px-4">Protocol</th>
-                <th className="py-3 px-4">Detection Status</th>
+                <th className="py-3 px-4">CIC-IDS2017</th>
+                <th className="py-3 px-4">CIC-DDoS2019</th>
+                <th className="py-3 px-4">Final Status</th>
                 <th className="py-3 px-4">Predicted Attack Type</th>
                 <th className="py-3 px-4">Model Score</th>
                 <th className="py-3 px-4">Window / Source</th>
@@ -448,12 +435,14 @@ export function LiveMonitoringPage({
                   <td className="py-2.5 px-4">
                     <ProtocolBadge protocol={rec.protocol} />
                   </td>
+                  <td className="py-2.5 px-4"><ModelResult record={rec} model="CIC-IDS2017" /></td>
+                  <td className="py-2.5 px-4"><ModelResult record={rec} model="CIC-DDoS2019" /></td>
                   <td className="py-2.5 px-4">
                     <StatusBadge status={rec.detection_status} />
                   </td>
                   <td className="py-2.5 px-4 font-semibold text-slate-100">
                     {rec.predicted_attack_type}
-                    {rec.dataset_profile === 'AUTO' && rec.note && <div className="mt-1 max-w-sm text-xs font-normal text-slate-400">{rec.note}</div>}
+                    <div className="mt-1 text-xs font-normal text-slate-400">{selectedModel(rec)}</div>
                   </td>
                   <td className="py-2.5 px-4 font-mono">
                     {rec.detection_status === 'BUFFERING' ? (
@@ -477,7 +466,7 @@ export function LiveMonitoringPage({
               ))}
               {tableRecords.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-10 text-center text-slate-500">
+                  <td colSpan={11} className="py-10 text-center text-slate-500">
                     Nhấn "Start Monitoring" để bắt đầu luồng suy luận trực tiếp.
                   </td>
                 </tr>

@@ -12,6 +12,7 @@ import {
 import { nidsApi } from '../services/api';
 import { DetectionAlert, PaginatedAlertsResponse } from '../types/nids';
 import { ProtocolBadge, SourceBadge, StatusBadge } from '../components/StatusBadge';
+import { HybridDecision, modelDecision, MODEL_IDS, selectedModel } from '../components/HybridPanels';
 
 export function AttackHistoryPage() {
   const [data, setData] = useState<PaginatedAlertsResponse | null>(null);
@@ -205,7 +206,7 @@ export function AttackHistoryPage() {
                 <th className="py-3 px-4">Destination IP:Port</th>
                 <th className="py-3 px-4">Proto</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Predicted Attack</th>
+                <th className="py-3 px-4">Prediction / Model</th>
                 <th className="py-3 px-4">Class Score</th>
                 <th className="py-3 px-4">Attack Score</th>
                 <th className="py-3 px-4">Gaussian</th>
@@ -240,6 +241,8 @@ export function AttackHistoryPage() {
                     </td>
                     <td className="py-2.5 px-4 font-semibold text-slate-100">
                       {item.predicted_attack_type}
+                      <div className="text-xs font-normal text-slate-400">Selected: {selectedModel(item)}</div>
+                      {item.dataset_profile === 'AUTO' && item.detection_status === 'ATTACK' && <div className="text-xs font-normal text-red-400">Alerting: {MODEL_IDS.filter(model => modelDecision(item, model)?.status === 'ATTACK').join(', ') || 'Unavailable'}</div>}
                     </td>
                     <td className="py-2.5 px-4 font-mono text-cyan-300">
                       {(item.class_score * 100).toFixed(2)}%
@@ -406,6 +409,7 @@ export function AttackHistoryPage() {
               </div>
             </div>
 
+            {selectedAlert.dataset_profile === 'AUTO' && <HybridDecision record={selectedAlert} />}
             {selectedAlert.note && (
               <div className="text-xs bg-slate-900/90 border border-slate-800 rounded-lg p-3 text-slate-300">
                 Ghi chú: {selectedAlert.note}

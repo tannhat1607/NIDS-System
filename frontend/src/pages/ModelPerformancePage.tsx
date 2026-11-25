@@ -90,7 +90,23 @@ export function ModelPerformancePage() {
         </div>
       </div>
 
-      <p className="text-xs text-amber-300">AUTO hybrid performance has not been evaluated on a shared labeled test set. Metrics below are for individual models.</p>
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-100">Individual model evaluation</h2>
+          <span className="text-xs text-amber-300">Hybrid: Not evaluated on a shared labeled test set</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {Object.values(perfMap).map(model => <div key={model.profile_id} className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <h3 className="text-sm font-bold text-cyan-300">{model.profile_id}</h3>
+            <div className="grid grid-cols-3 gap-2 text-xs text-slate-400">
+              <div>Binary accuracy <strong className="block text-lg text-slate-100">{model.binary_metrics ? (model.binary_metrics.binary_accuracy * 100).toFixed(2) + '%' : 'N/A'}</strong></div>
+              <div>Multiclass accuracy <strong className="block text-lg text-slate-100">{(model.multiclass_metrics.accuracy * 100).toFixed(2)}%</strong></div>
+              <div>Macro F1 <strong className="block text-lg text-slate-100">{(model.multiclass_metrics.macro_f1 * 100).toFixed(2)}%</strong></div>
+            </div>
+          </div>)}
+        </div>
+        <p className="text-xs text-slate-400">Separate offline datasets and evaluation protocols. Combined hybrid accuracy, recall and F1 remain unavailable.</p>
+      </section>
       {/* Important Distinction Alert for CIC-DDoS2019 */}
       {activeTab === 'CIC-DDoS2019' ? (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3 text-xs text-slate-200">

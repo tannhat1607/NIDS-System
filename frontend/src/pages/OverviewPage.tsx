@@ -25,8 +25,9 @@ import {
   YAxis,
 } from 'recharts';
 import { nidsApi } from '../services/api';
-import { AttackStatsResponse, MonitoringStatus, TrafficStats } from '../types/nids';
+import { AttackStatsResponse, ModelProfileInfo, MonitoringStatus, TrafficStats } from '../types/nids';
 import { ProtocolBadge, SourceBadge, StatusBadge } from '../components/StatusBadge';
+import { HybridDecision, ModelStatusPanel, TemporalBufferPanel, selectedModel } from '../components/HybridPanels';
 
 interface OverviewPageProps {
   wsConnected: boolean;
@@ -37,19 +38,25 @@ interface OverviewPageProps {
 export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPageProps) {
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [attackStats, setAttackStats] = useState<AttackStatsResponse | null>(null);
-  const [profileFilter, setProfileFilter] = useState<string>('ALL');
+  const [profileFilter, setProfileFilter] = useState<string>('AUTO');
+  const [profiles, setProfiles] = useState<ModelProfileInfo[]>([]);
+  const [runtime, setRuntime] = useState<MonitoringStatus | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
       setError(null);
-      const [tRes, aRes] = await Promise.all([
+      const [tRes, aRes, pRes, sRes] = await Promise.all([
         nidsApi.getTrafficStats(profileFilter),
         nidsApi.getAttackStats(profileFilter),
+        nidsApi.getProfiles(),
+        nidsApi.getMonitoringStatus(),
       ]);
       setTraffic(tRes);
       setAttackStats(aRes);
+      setProfiles(pRes.profiles);
+      setRuntime(sRes);
     } catch (err: any) {
       setError(err?.message || 'Không thể tải dữ liệu tổng quan từ Backend API.');
     } finally {
@@ -63,15 +70,16 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
     return () => window.clearInterval(interval);
   }, [profileFilter]);
 
-  const activeProfile = liveStatus?.active_profile || traffic?.active_profile || 'AUTO';
-  const isMonitoring = liveStatus?.is_monitoring ?? traffic?.is_monitoring ?? false;
-  const totalPackets = liveStatus?.packets_processed || traffic?.packets_processed || 0;
-  const totalFlows = liveStatus?.total_flows_seen || traffic?.total_flows_seen || 0;
-  const totalInferences = traffic?.total_inferences || 0;
+  const status = (wsConnected ? liveStatus : null) || runtime;
+  const activeProfile = status?.active_profile || traffic?.active_profile || 'AUTO';
+  const isMonitoring = status?.is_monitoring ?? false;
+  const totalPackets = status?.packets_processed ?? 0;
+  const totalFlows = status?.total_flows_seen ?? 0;
+  const totalInferences = (attackStats?.total_attacks ?? 0) + (attackStats?.total_benign ?? 0);
   const totalAttacks = traffic?.total_attacks || 0;
   const totalBenign = traffic?.total_benign || 0;
-  const latencyAvg = liveStatus?.latency_avg_ms || traffic?.latency_avg_ms || 0;
-  const latencyP95 = liveStatus?.latency_p95_ms || traffic?.latency_p95_ms || 0;
+  const latencyAvg = status?.latency_avg_ms ?? 0;
+  const latencyP95 = status?.latency_p95_ms ?? 0;
 
   const pieData = [
     { name: 'BENIGN', value: totalBenign, color: '#10b981' },
@@ -91,7 +99,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
         <div>
           <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <Activity className="w-5 h-5 text-cyan-400" />
-            Security Operations Center — System Overview
+            Hybrid Multi-Model NIDS — Overview
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
             Giám sát lưu lượng mạng, phân bố cảnh báo CNN-LSTM và hiệu năng suy luận theo thời gian thực
@@ -100,7 +108,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-xs bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5">
-            <span className="text-slate-400">Filter Profile:</span>
+            <span className="text-slate-400">History filter:</span>
             <select
               value={profileFilter}
               onChange={(e) => setProfileFilter(e.target.value)}
@@ -135,7 +143,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex items-center justify-between">
           <div>
             <p className="text-xs text-slate-400 uppercase tracking-wider">Active Model Profile</p>
-            <p className="text-lg font-bold text-cyan-400 mt-1">{activeProfile}</p>
+            <p className="text-lg font-bold text-cyan-400 mt-1">{activeProfile === 'AUTO' ? 'Hybrid Multi-Model' : activeProfile}</p>
             <p className="text-xs text-slate-400 mt-0.5">
               {activeProfile === 'AUTO' ? 'Hybrid CNN-LSTM (Single Flow + Temporal Window)' : activeProfile === 'CIC-IDS2017'
                 ? 'Feature-sequence CNN-LSTM (12 Classes, Single Flow)'
@@ -157,7 +165,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
                 }`}
               />
               <span className="text-lg font-bold text-slate-100">
-                {isMonitoring ? `MONITORING (${liveStatus?.data_source})` : 'STANDBY / READY'}
+                {isMonitoring ? `MONITORING (${status?.data_source})` : 'STANDBY / READY'}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -187,6 +195,10 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
         </div>
       </div>
 
+      <ModelStatusPanel profiles={profiles} mode={activeProfile} monitoring={isMonitoring} />
+      {activeProfile === 'AUTO' && <HybridDecision record={status?.recent_detections?.find(record => record.dataset_profile === 'AUTO') ?? traffic?.latest_alerts.find(record => record.dataset_profile === 'AUTO')} />}
+      {(activeProfile === 'AUTO' || activeProfile === 'CIC-DDoS2019') && <TemporalBufferPanel status={status} />}
+      <p className="text-xs text-slate-400">Packets, flows and latency describe the current runtime. Detection counts and charts use the selected history filter.</p>
       {/* 4 Key Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-4">
@@ -204,13 +216,13 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
 
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>TỔNG SỐ AI INFERENCES</span>
+            <span>KẾT QUẢ PHÁT HIỆN (LỊCH SỬ)</span>
             <Cpu className="w-4 h-4 text-blue-400" />
           </div>
           <p className="text-2xl font-bold text-slate-100 mt-2">{totalInferences.toLocaleString()}</p>
           <p className="text-xs text-slate-400 mt-1">
-            Đang đệm (Buffering):{' '}
-            <span className="text-amber-300 font-medium">{traffic?.total_buffering || 0}</span>
+            Lượt buffering (runtime):{' '}
+            <span className="text-amber-300 font-medium">{status?.total_buffering ?? 0}</span>
           </p>
         </div>
 
@@ -449,6 +461,7 @@ export function OverviewPage({ wsConnected, liveStatus, onNavigate }: OverviewPa
                   </td>
                   <td className="py-2.5 px-4 font-semibold text-slate-100">
                     {al.predicted_attack_type}
+                    <div className="text-xs font-normal text-slate-400">{selectedModel(al)}</div>
                   </td>
                   <td className="py-2.5 px-4 font-mono text-cyan-300">
                     {(al.class_score * 100).toFixed(1)}%
